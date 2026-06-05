@@ -3,5 +3,7 @@ openai
 google-generativeai
 supabase
 python-dotenv
-python-telegram-bot
+fastapi
+uvicorn
+httpx
 apscheduler

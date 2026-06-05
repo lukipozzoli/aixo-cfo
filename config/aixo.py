@@ -29,5 +29,13 @@ REPORT_AGENT_MODEL: str = os.environ["REPORT_AGENT_MODEL"]
 ROUTER_PROVIDER: str = os.environ["ROUTER_PROVIDER"]
 ROUTER_MODEL: str = os.environ["ROUTER_MODEL"]
 
+# Mensajería
+MESSAGING_PROVIDER: str = os.environ["MESSAGING_PROVIDER"]
+MESSAGING_MODE: str = os.environ["MESSAGING_MODE"]
+MESSAGING_PORT: int = int(os.environ["MESSAGING_PORT"])
+
+# Variables específicas de Telegram — solo aplican si MESSAGING_PROVIDER=telegram.
 TELEGRAM_BOT_TOKEN: str = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID: str = os.environ["TELEGRAM_CHAT_ID"]
+TELEGRAM_WEBHOOK_URL: str | None = os.getenv("TELEGRAM_WEBHOOK_URL")  # requerido en modo webhook
+TELEGRAM_WEBHOOK_PATH: str = os.environ["TELEGRAM_WEBHOOK_PATH"]

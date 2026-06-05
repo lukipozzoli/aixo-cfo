@@ -18,7 +18,7 @@ El sistema es multi-agente. Cada agente tiene una responsabilidad específica.
 Los detalles de cada agente y sus flujos se irán definiendo iterativamente.
 
 Entradas al sistema:
-- Mensajes de Telegram del usuario
+- Mensajes del usuario vía proveedor de mensajería (hoy: Telegram)
 - Webhooks externos (Gmail, Linear, Bancos)
 - Cron jobs programados
 - Llamadas desde otros agentes (Admin, Ops)
@@ -26,6 +26,81 @@ Entradas al sistema:
 La capa de conectores normaliza todos los eventos externos a un formato estándar
 antes de que lleguen al agente financiero. Esto permite agregar nuevas fuentes
 sin tocar la lógica central.
+
+---
+
+## Patrón de providers
+
+Todo componente con dependencia externa (LLM, base de datos, mensajería) sigue el mismo patrón:
+
+1. `core/<tipo>/base.py` — clase abstracta que define la interfaz. El core y los agentes solo importan de acá.
+2. `providers/<tipo>/<nombre>.py` — implementación concreta para un proveedor específico.
+3. `<tipo>/client.py` o `core/<tipo>/factory.py` — factory que instancia el provider correcto según config.
+4. `config/aixo.py` — variable de entorno que selecciona el provider (ej: `DATABASE_PROVIDER=supabase`).
+
+**Para agregar un nuevo provider:**
+1. Crear `providers/<tipo>/<nuevo_nombre>.py`
+2. Implementar la clase abstracta de `core/<tipo>/base.py`
+3. Registrar el nuevo provider en el factory correspondiente con su nombre como clave
+
+Este patrón garantiza que cambiar de proveedor (de Supabase a Postgres, de Claude a GPT-4, de Telegram a iMessage) no requiere tocar ningún agente ni lógica de negocio.
+
+### Providers implementados
+
+#### LLM (`core/llm/base.py` → `LLMProvider`)
+Métodos: `chat(messages)`, `complete(prompt)`
+Factory: `core/llm/factory.py` → `build_llm_provider(provider, model, api_key)`
+
+| Provider | Archivo | Variable de selección |
+|----------|---------|----------------------|
+| Anthropic Claude | `providers/llm/claude.py` | `<AGENTE>_PROVIDER=claude` |
+| OpenAI | `providers/llm/openai.py` | `<AGENTE>_PROVIDER=openai` |
+| Google Gemini | `providers/llm/gemini.py` | `<AGENTE>_PROVIDER=gemini` |
+
+Cada agente tiene su propio provider y modelo configurados de forma independiente:
+`FINANCIAL_AGENT_PROVIDER`, `CONVERSATION_AGENT_PROVIDER`, `REPORT_AGENT_PROVIDER`, `ROUTER_PROVIDER`.
+
+#### Base de datos (`core/db/base.py` → `DatabaseClient`)
+Métodos: `select(table, filters)`, `insert(table, data)`, `update(table, data, filters)`, `delete(table, filters)`
+Factory: `db/client.py` → `get_client()`
+
+| Provider | Archivo | Variable de selección |
+|----------|---------|----------------------|
+| Supabase | `providers/db/supabase.py` | `DATABASE_PROVIDER=supabase` |
+
+#### Mensajería (`core/messaging/base.py` → `MessagingProvider`)
+Métodos: `send(chat_id, text)`, `listen(handler)`
+Factory: `messaging/client.py` → `get_client()`
+
+| Provider | Archivo | Variable de selección |
+|----------|---------|----------------------|
+| Telegram (webhook) | `providers/messaging/telegram.py` | `MESSAGING_PROVIDER=telegram` |
+
+*El modo de Telegram (webhook/polling) se configura con `MESSAGING_MODE`.*
+
+#### Scheduler (`core/scheduler/base.py` → `Scheduler`)
+Métodos: `register_job(job_id, func, cron_expr)`, `run()`
+*Implementación concreta: a definir.*
+
+---
+
+## Agentes
+
+### Financial Agent
+Maneja toda la lógica de negocio financiera: registra movimientos, concilia, proyecta.
+*Detalle: a definir.*
+
+### Router
+Recibe mensajes normalizados desde el proveedor de mensajería y los clasifica para derivarlos al agente correcto.
+*Detalle: a definir.*
+
+### Conversation Agent
+Presenta información al usuario en lenguaje natural. Maneja el ida y vuelta conversacional.
+*Detalle: a definir.*
+
+### Report Agent
+Genera reportes, proyecciones y resúmenes financieros.
+*Detalle: a definir.*
 
 ---
 
