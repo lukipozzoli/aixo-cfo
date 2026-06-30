@@ -37,5 +37,28 @@ MESSAGING_PORT: int = int(os.environ["MESSAGING_PORT"])
 # Variables específicas de Telegram — solo aplican si MESSAGING_PROVIDER=telegram.
 TELEGRAM_BOT_TOKEN: str = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID: str = os.environ["TELEGRAM_CHAT_ID"]
-TELEGRAM_WEBHOOK_URL: str | None = os.getenv("TELEGRAM_WEBHOOK_URL")  # requerido en modo webhook
+TELEGRAM_WEBHOOK_URL: str | None = os.getenv("TELEGRAM_WEBHOOK_URL")
 TELEGRAM_WEBHOOK_PATH: str = os.environ["TELEGRAM_WEBHOOK_PATH"]
+
+# Transcripción de audio
+TRANSCRIPTION_PROVIDER: str = os.environ["TRANSCRIPTION_PROVIDER"]
+TRANSCRIPTION_MODEL: str = os.environ["TRANSCRIPTION_MODEL"]
+
+# Visión — análisis de imágenes y documentos visuales
+VISION_PROVIDER: str = os.environ["VISION_PROVIDER"]
+VISION_MODEL: str = os.environ["VISION_MODEL"]
+
+
+def get_llm_api_key(provider: str) -> str:
+    # Devuelve la API key correspondiente al provider indicado.
+    # Falla ruidosamente si la key no está configurada en .env —
+    # mejor un error claro al inicio que un fallo silencioso más adelante.
+    mapping: dict[str, str | None] = {
+        "claude": ANTHROPIC_API_KEY,
+        "openai": OPENAI_API_KEY,
+        "gemini": GEMINI_API_KEY,
+    }
+    key = mapping.get(provider)
+    if not key:
+        raise ValueError(f"API key no configurada para provider '{provider}'. Verificar .env.")
+    return key

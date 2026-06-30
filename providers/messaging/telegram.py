@@ -1,3 +1,4 @@
+from io import BytesIO
 import httpx
 import uvicorn
 from fastapi import FastAPI, Request
@@ -154,6 +155,23 @@ class TelegramProvider(MessagingProvider):
             ))
 
         return attachments
+
+    async def download(self, attachment: Attachment) -> tuple[BytesIO, str]:
+        # Descarga el archivo de Telegram en memoria usando el file_id.
+        # Primero llama a getFile para obtener el file_path, luego descarga los bytes.
+        # Devuelve el BytesIO y la URL pública — nunca escribe nada a disco.
+        if not attachment.file_id:
+            raise ValueError("El attachment no tiene file_id — no se puede descargar.")
+
+        async with httpx.AsyncClient() as client:
+            # Paso 1: obtener la ruta del archivo en los servidores de Telegram.
+            meta = await client.get(f"{self._base_url}/getFile", params={"file_id": attachment.file_id})
+            file_path = meta.json()["result"]["file_path"]
+
+            # Paso 2: construir la URL pública y descargar los bytes en memoria.
+            public_url = f"https://api.telegram.org/file/bot{self._token}/{file_path}"
+            response = await client.get(public_url)
+            return BytesIO(response.content), public_url
 
     async def _register_webhook(self) -> None:
         full_url = f"{self._webhook_url}{self._webhook_path}"

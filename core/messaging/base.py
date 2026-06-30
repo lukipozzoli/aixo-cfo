@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from io import BytesIO
 from typing import Callable, Awaitable
 
 
@@ -46,4 +47,12 @@ class MessagingProvider(ABC):
     async def listen(self, handler: Callable[[IncomingMessage], Awaitable[None]]) -> None:
         # Inicia el loop de escucha. Bloquea la ejecución.
         # handler es una corrutina que recibe cada mensaje entrante normalizado.
+        pass
+
+    @abstractmethod
+    async def download(self, attachment: Attachment) -> tuple[BytesIO, str]:
+        # Descarga el archivo del attachment en memoria y devuelve:
+        #   - BytesIO: bytes del archivo, listo para pasar a Whisper o visión
+        #   - str: URL pública del archivo en los servidores del provider
+        # El BytesIO no toca el disco — vive solo en RAM hasta que el caller lo libera.
         pass
