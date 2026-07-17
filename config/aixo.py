@@ -29,6 +29,10 @@ REPORT_AGENT_MODEL: str = os.environ["REPORT_AGENT_MODEL"]
 ROUTER_PROVIDER: str = os.environ["ROUTER_PROVIDER"]
 ROUTER_MODEL: str = os.environ["ROUTER_MODEL"]
 
+# El Orquestador decide qué sub-agente resuelve cada mensaje.
+ORCHESTRATOR_PROVIDER: str = os.environ["ORCHESTRATOR_PROVIDER"]
+ORCHESTRATOR_MODEL: str = os.environ["ORCHESTRATOR_MODEL"]
+
 # Mensajería
 MESSAGING_PROVIDER: str = os.environ["MESSAGING_PROVIDER"]
 MESSAGING_MODE: str = os.environ["MESSAGING_MODE"]
