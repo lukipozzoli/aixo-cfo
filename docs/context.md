@@ -15,7 +15,22 @@ El core nunca hardcodea nada de ninguna empresa en particular.
 ## Arquitectura general
 
 El sistema es multi-agente. Cada agente tiene una responsabilidad específica.
-Los detalles de cada agente y sus flujos se irán definiendo iterativamente.
+
+Pipeline implementado y funcionando:
+
+```
+Telegram → Preprocessor → Router → Orquestador → Sub-agentes → Supabase
+```
+
+- **Preprocessor**: convierte todo a texto (transcribe audios, describe imágenes con visión).
+- **Router**: clasifica el mensaje en un intent (una palabra, LLM barato).
+- **Orquestador**: recibe mensaje + intent y decide qué sub-agente resuelve el pedido.
+  Puede encadenar varios agentes. El intent es una pista, no una orden.
+- **Sub-agentes**: cada uno resuelve su dominio con operaciones validadas por código.
+
+La interfaz actual del sistema es **Telegram** (modo polling). Es la interfaz de
+testeo mientras se construye la estructura; el diseño permite sumar otras
+(WhatsApp, iMessage, web) implementando `MessagingProvider`.
 
 Entradas al sistema:
 - Mensajes del usuario vía proveedor de mensajería (hoy: Telegram)
@@ -86,31 +101,108 @@ Métodos: `register_job(job_id, func, cron_expr)`, `run()`
 
 ## Agentes
 
-### Financial Agent
-Maneja toda la lógica de negocio financiera: registra movimientos, concilia, proyecta.
-*Detalle: a definir.*
+### Contrato común (`core/agents/base.py`) — IMPLEMENTADO
 
-### Router
-Recibe mensajes normalizados desde el proveedor de mensajería y los clasifica para derivarlos al agente correcto.
-*Detalle: a definir.*
+Todo sub-agente implementa la interfaz `Agent`: atributos `name` y `description`
+(el orquestador arma su prompt con las descripciones — actualizar la descripción
+cada vez que un agente gana una capacidad), y un método
+`handle(message, intent, instruction) -> AgentResult`.
+`AgentResult` lleva `text` (respuesta), `data` (datos estructurados para encadenar)
+y `success`.
 
-### Conversation Agent
+Convención de organización: **agente simple = archivo, agente complejo = carpeta**
+con `agent.py` (la clase), `prompt.py` (su system prompt) y `operations.py`
+(operaciones validadas). Cada carpeta es autocontenida y extraíble como skill.
+
+### Router (`agents/router.py`) — IMPLEMENTADO
+Clasifica cada mensaje en un intent (enum `core/intents.py`) usando un LLM.
+Valida la respuesta contra el enum; si no matchea, cae en `desconocido`.
+No tiene lógica de negocio.
+
+### Orquestador (`agents/orchestrator.py`) — IMPLEMENTADO
+El "agente principal". Recibe el mensaje ya clasificado y decide cómo resolverlo:
+a qué sub-agente llamar, con qué instrucción, y si encadenar varios. Reemplazó al
+`match intent:` provisorio de `main.py`.
+
+Funcionamiento: loop agéntico con historial. En cada vuelta su LLM responde JSON:
+`{"action": "call_agent", "agent": ..., "instruction": ...}` o
+`{"action": "respond", "text": ...}`. Defensas: JSON validado (formato inválido
+corta con mensaje honesto), agente inexistente informado al LLM para que corrija,
+y límite de iteraciones (default 5) contra loops infinitos.
+
+Recibe los sub-agentes inyectados por constructor (lista en `main.py`). Agregar
+un agente nuevo no requiere tocar el orquestador (principio O de SOLID).
+
+### Financial Agent (`agents/financial/`) — IMPLEMENTADO (v1)
+Maneja la operatoria financiera contra la base. Mismo patrón que el orquestador
+un nivel más abajo: su LLM elige operaciones de una **lista blanca** y
+`operations.py` valida todo por código antes de tocar la base (montos positivos,
+monedas válidas, cuentas existentes, moneda del movimiento = moneda de la cuenta).
+La aritmética con dinero la hace siempre el código, nunca el LLM.
+
+Operaciones actuales:
+
+| Operación | Qué hace |
+|---|---|
+| `crear_cuenta` | Alta de cuenta. Rechaza nombres duplicados. |
+| `listar_cuentas` | Cuentas con saldos. También para resolver nombres aproximados. |
+| `registrar_egreso` | Gasto efectuado. Descuenta `saldo_actual` de la cuenta. |
+| `registrar_ingreso_previsto` | Plata por cobrar (ej: factura emitida). |
+| `listar_ingresos_previstos` | Pendientes de cobro. |
+| `registrar_ingreso_efectuado` | Cobro real. Suma al saldo. Si trae `id_ingreso_previsto`, concilia (el previsto pasa a `confirmado`). |
+| `resumen_mensual` | Ingresos, egresos, ganancia neta y mitad por socio del mes, separado por moneda (nunca mezcla monedas sin tipo de cambio). Solo sobre lo efectuado: la ganancia es plata que existe, no promesas. |
+
+Sin operación de borrado, a propósito: correcciones por SQL manual hasta diseñar
+una anulación segura.
+
+Probado end-to-end por Telegram: lectura de factura desde foto (visión) →
+ingreso previsto → conciliación del cobro → resumen con división por socio.
+
+### Conversation Agent — A IMPLEMENTAR
 Presenta información al usuario en lenguaje natural. Maneja el ida y vuelta conversacional.
-*Detalle: a definir.*
 
-### Report Agent
+### Report Agent — A IMPLEMENTAR
 Genera reportes, proyecciones y resúmenes financieros.
-*Detalle: a definir.*
+
+### Sub-agente ARCA (`agents/arca/`) — PRÓXIMO PASO
+Primer sub-agente de facturación. Reutiliza el motor de facturación ya existente
+(emite Factura C vía WSFEv1) para facturar sin entrar al portal de ARCA ni hacer
+el proceso manual. El orquestador interpreta el pedido del usuario y delega en
+este sub-agente, que ejecuta el proceso completo: emisión, registro en el schema
+`facturacion`, y creación automática del `finanzas.ingreso_previsto` vinculado.
 
 ---
 
 ## Base de datos
 
-Supabase. Proyecto: `finanzas`.
+Supabase. Proyecto: `aixo.bdd`.
 
 El schema `finanzas` contiene toda la lógica financiera del agente.
 El schema `facturacion` contiene las tablas del subagente de facturación ARCA.
 El schema `public` contiene la estructura de la empresa (fuera del scope de este agente).
+
+### Estado actual
+
+**Creadas en Supabase** (DDL versionado en `db/migrations/001_finanzas.sql`, que es
+la fuente de verdad de los tipos exactos): `cuenta`, `ingreso_previsto`,
+`egreso_previsto`, `ingreso_efectuado`, `egreso_efectuado`, `liquidacion_mensual`.
+
+**Pendientes de crear**: `inversion`, `prestamo`, `snapshot_cuenta`,
+`snapshot_inversion`, `snapshot_prestamo` (schema `finanzas`) y las tres de
+`facturacion` (se crean junto con el sub-agente ARCA).
+
+Decisiones de tipos (aplican a todo lo que se cree de acá en adelante):
+- Montos en `numeric(15,2)`, nunca `float8` — la coma flotante comete errores de redondeo y con dinero es inaceptable.
+- Timestamps en `timestamptz` — con zona horaria, Supabase almacena en UTC.
+- `CHECK` constraints en campos de moneda/tipo/estado — la base rechaza valores fuera de lista (última defensa contra alucinaciones del LLM).
+- Las columnas FK hacia `public` (`id_proyecto`, `id_costo_fijo`, `id_costo_variable`) existen pero **sin constraint todavía**; se agregan en una migración futura. Nota: la tabla real es `public.cliente` (singular), no `clientes` como decía el diseño original.
+
+Seguridad y acceso:
+- **RLS activado en todas las tablas.** La anon/publishable key no accede a nada.
+- El agente usa la **secret key** (`service_role`), que saltea RLS.
+- Los schemas propios requieren dos pasos manuales en Supabase: exponerlos en
+  Settings → Data API → Exposed schemas, y otorgar permisos al rol
+  (`grant usage/all ... to service_role`, incluidos al final de la migración 001).
 
 ### Schema `finanzas`
 
@@ -452,10 +544,50 @@ regenerar el PDF y para reportes por categoría.
 
 ## Flujo de un mensaje
 
-*A definir.*
+Ejemplo real (probado): *"me pagaron la factura de Sigma, entró en MP Matías"*
+
+1. `providers/messaging/telegram.py` recibe el mensaje y lo normaliza a `IncomingMessage`.
+2. `core/preprocessing/preprocessor.py` lo deja en texto (si era audio lo transcribe;
+   si era imagen la describe con visión).
+3. `agents/router.py` lo etiqueta con un intent (ej: `edicion_db`).
+4. `agents/orchestrator.py` decide: `call_agent` → `financial`, con una instrucción específica.
+5. `agents/financial/agent.py` resuelve con su mini-loop: `listar_ingresos_previstos`
+   (encuentra la factura con su monto e id) → `registrar_ingreso_efectuado` (con
+   conciliación del previsto y actualización del saldo).
+6. El resultado vuelve al orquestador, que redacta la respuesta final (`respond`).
+7. `main.py` (`handle()`, 4 líneas) se la pasa a `telegram.py`, que la envía al usuario.
+
+Patrón general: dos niveles de LLM decidiendo en menús cada vez más chicos
+(orquestador elige agente → agente elige operación), y al final siempre código
+determinista validando antes de tocar la base.
 
 ---
 
 ## Flujo de un evento externo
 
 *A definir.*
+
+---
+
+## Pendientes técnicos anotados
+
+Detectados durante la construcción; ninguno es bloqueante hoy:
+
+- **Memoria conversacional**: el sistema no recuerda mensajes anteriores. El intent
+  `respuesta_agente` existe pero nada lo maneja — si un agente pregunta algo, la
+  respuesta del usuario llega sin contexto. Los prompts mitigan esto haciendo que
+  los agentes resuelvan solos (ej: buscar montos en la base) en vez de preguntar.
+- **PDFs sin procesar**: el Preprocessor procesa imágenes con visión, pero los
+  documentos PDF pasan de largo. Por ahora: mandar captura de pantalla.
+- **Idempotencia de movimientos**: mensajes repetidos generan registros duplicados
+  (pasó en pruebas con un gasto cargado dos veces). ARCA ya lo prevé con
+  `idempotency_key`; para el financial falta detectar duplicados sospechosos y preguntar.
+- **`edited_at` no se actualiza solo**: falta trigger en la base o seteo desde el código.
+- **Provider de Supabase con schema fijo**: `providers/db/supabase.py` tiene
+  `finanzas` hardcodeado; generalizar cuando ARCA necesite el schema `facturacion`.
+- **Feedback de formato en el orquestador**: el loop del financial avisa al LLM
+  cuando responde con formato inválido; el del orquestador todavía no (mismo fix pendiente).
+- **Prints de `[DEBUG]`**: quedan en orquestador y financial mientras dure el
+  desarrollo activo; sacarlos al pasar a servidor.
+- **Confirmación previa a escrituras**: evaluar que operaciones que escriben pidan
+  confirmación por Telegram antes de ejecutar (requiere memoria conversacional).
