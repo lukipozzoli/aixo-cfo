@@ -7,7 +7,9 @@ La primera implementación es para **AIXO Studio**, pero el core es genérico: t
 ## Arquitectura en una línea
 
 ```
-Telegram → Preprocessor → Router → Orquestador → Sub-agentes → Supabase
+Telegram → Preprocessor → Router → Orquestador → Financial Agent → Supabase
+  (sin      (Whisper +     (LLM:     (LLM:         (LLM: elige      (sin
+   LLM)      visión)       etiqueta)  decide)       operación)       LLM)
 ```
 
 - **Preprocessor**: convierte todo a texto (transcribe audios con Whisper, describe imágenes con visión).
@@ -80,7 +82,7 @@ Completar las variables:
 
 ```bash
 source venv/bin/activate
-python main.py
+python3 main.py
 ```
 
 Debería aparecer:
