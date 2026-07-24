@@ -158,6 +158,32 @@ una anulación segura.
 Probado end-to-end por Telegram: lectura de factura desde foto (visión) →
 ingreso previsto → conciliación del cobro → resumen con división por socio.
 
+> Estado actual: temporalmente **desenchufado** de `main.py` durante el desarrollo
+> del Tester Agent (`orchestrator agents=[_tester]`). Los archivos de
+> `agents/financial/` quedan intactos; reactivarlo es volver a registrarlo en `main.py`.
+
+### Tester Agent (`agents/tester/`) — IMPLEMENTADO (solo lectura)
+Agente de prueba de **solo lectura**. Cumple el contrato `Agent`, así que el
+orquestador lo llama igual que a cualquier sub-agente. Mismo mini-loop que el
+financial, pero su caja de herramientas son únicamente tools de lectura
+inyectadas — no tiene ninguna que escriba, así que no puede mutar la base.
+Protocolo JSON con `{"action": "read", ...}` / `{"action": "respond", ...}`.
+
+Sirve como banco de pruebas de la infraestructura de lectura y como primera
+implementación del patrón de tools reutilizables (ver sección Tools).
+
+Tools que consume (de `tools/reads/financial.py`):
+
+| Tool | Qué lee |
+|---|---|
+| `buscar_cuentas(nombre?)` | `finanzas.cuenta` — cuentas con saldo, tipo y moneda. |
+| `listar_ingresos_previstos(estado?)` | `finanzas.ingreso_previsto` — por default los `pendiente` (cobros a recibir). |
+
+Probado end-to-end por Telegram: consulta de cuentas (multi-moneda ARS/USD/EUR)
+y de cobros pendientes (filtrando por estado correctamente).
+
+Config propia: `TESTER_AGENT_PROVIDER` / `TESTER_AGENT_MODEL` (`.env` + `config/aixo.py`).
+
 ### Conversation Agent — A IMPLEMENTAR
 Presenta información al usuario en lenguaje natural. Maneja el ida y vuelta conversacional.
 
@@ -172,6 +198,21 @@ este sub-agente, que ejecuta el proceso completo: emisión, registro en el schem
 `facturacion`, y creación automática del `finanzas.ingreso_previsto` vinculado.
 
 ---
+
+## Tools
+
+Las herramientas que usan los agentes viven en su **propia carpeta** (`tools/`),
+separadas de cualquier agente, para poder ser reutilizadas por varios. Se
+**inyectan por constructor** (el armado pasa en `main.py`); el agente no las crea
+ni las tiene adentro, solo las recibe.
+
+Organización **por acceso**: `tools/reads/` contiene únicamente tools de lectura
+(solo llaman `db.select`, nunca escriben). La carpeta es la frontera que garantiza
+que un agente de solo lectura no pueda mutar la base, por construcción. Cuando haga
+falta, se sumará `tools/writes/` para las de escritura.
+
+Implementado: `tools/reads/financial.py` → `FinancialReadTools`
+(`buscar_cuentas`, `listar_ingresos_previstos`).
 
 ## Base de datos
 
