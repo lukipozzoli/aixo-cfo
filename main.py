@@ -1,14 +1,19 @@
 import asyncio
 from core.messaging.base import IncomingMessage
-from core.intents import Intent
 from core.llm.factory import build_llm_provider
 from core.transcription.factory import build_transcription_provider
 from core.vision.factory import build_vision_provider
 from core.preprocessing.preprocessor import Preprocessor
 from agents.router import Router
+from agents.orchestrator import Orchestrator
+from agents.tester.agent import TesterAgent
+from tools.reads.financial import FinancialReadTools
+from db.client import get_client as get_db_client
 from messaging.client import get_client
 from config.aixo import (
     ROUTER_PROVIDER, ROUTER_MODEL,
+    ORCHESTRATOR_PROVIDER, ORCHESTRATOR_MODEL,
+      TESTER_AGENT_PROVIDER, TESTER_AGENT_MODEL,
     TRANSCRIPTION_PROVIDER, TRANSCRIPTION_MODEL,
     VISION_PROVIDER, VISION_MODEL,
     get_llm_api_key,
@@ -40,37 +45,34 @@ _router = Router(
 )
 
 
+# Inicializa el Tester Agent: agente de solo lectura para pruebas.
+# Recibe las tools de lectura ya armadas (inyección desde acá).
+_tester = TesterAgent(
+    llm=build_llm_provider(
+        provider=TESTER_AGENT_PROVIDER,
+        model=TESTER_AGENT_MODEL,
+        api_key=get_llm_api_key(TESTER_AGENT_PROVIDER),
+    ),
+    tools=FinancialReadTools(db=get_db_client()),
+)
+
+# Inicializa el Orquestador con su LLM y los sub-agentes registrados.
+# Para sumar un agente nuevo, solo se agrega a esta lista.
+_orchestrator = Orchestrator(
+    llm=build_llm_provider(
+        provider=ORCHESTRATOR_PROVIDER,
+        model=ORCHESTRATOR_MODEL,
+        api_key=get_llm_api_key(ORCHESTRATOR_PROVIDER),
+    ),
+    agents=[_tester],
+)
+
 async def handle(message: IncomingMessage) -> None:
-    # Pipeline: Preprocessor → Router → Agente correspondiente.
+    # Pipeline: Preprocessor → Router → Orchestrator → send.
     message = await _preprocessor.process(message)
     intent = _router.classify(message)
-
-    # TODO: reemplazar cada rama por la llamada al agente correspondiente.
-    match intent:
-        case Intent.CONSULTA_INFORMACION:
-            await _messaging.send(message.chat_id, f"[Financial Agent] Intent: {intent}")
-        case Intent.CONSULTA_ARCHIVO:
-            await _messaging.send(message.chat_id, f"[Financial Agent] Intent: {intent}")
-        case Intent.REPORTE:
-            await _messaging.send(message.chat_id, f"[Report Agent] Intent: {intent}")
-        case Intent.PROYECCION:
-            await _messaging.send(message.chat_id, f"[Financial Agent] Intent: {intent}")
-        case Intent.INVESTIGACION:
-            await _messaging.send(message.chat_id, f"[Research Agent] Intent: {intent}")
-        case Intent.CONCILIACION:
-            await _messaging.send(message.chat_id, f"[Financial Agent] Intent: {intent}")
-        case Intent.EDICION_DB:
-            await _messaging.send(message.chat_id, f"[Financial Agent] Intent: {intent}")
-        case Intent.CONFIGURACION_ALERTA:
-            await _messaging.send(message.chat_id, f"[Alert Agent] Intent: {intent}")
-        case Intent.EVENTO_EXTERNO:
-            await _messaging.send(message.chat_id, f"[Alert Agent] Intent: {intent}")
-        case Intent.RESPUESTA_AGENTE:
-            await _messaging.send(message.chat_id, f"[Conversation Agent] Intent: {intent}")
-        case Intent.CONVERSACIONAL:
-            await _messaging.send(message.chat_id, f"[Conversation Agent] Intent: {intent}")
-        case Intent.DESCONOCIDO:
-            await _messaging.send(message.chat_id, "No entendí tu mensaje. ¿Podés reformularlo?")
+    response = await _orchestrator.run(message, intent)
+    await _messaging.send(message.chat_id, response)
 
 
 async def main() -> None:

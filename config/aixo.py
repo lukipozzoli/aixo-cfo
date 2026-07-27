@@ -20,6 +20,10 @@ GEMINI_API_KEY: str | None = os.getenv("GEMINI_API_KEY")
 FINANCIAL_AGENT_PROVIDER: str = os.environ["FINANCIAL_AGENT_PROVIDER"]
 FINANCIAL_AGENT_MODEL: str = os.environ["FINANCIAL_AGENT_MODEL"]
 
+# Tester Agent — agente de solo lectura para pruebas.
+TESTER_AGENT_PROVIDER: str = os.environ["TESTER_AGENT_PROVIDER"]
+TESTER_AGENT_MODEL: str = os.environ["TESTER_AGENT_MODEL"]
+
 CONVERSATION_AGENT_PROVIDER: str = os.environ["CONVERSATION_AGENT_PROVIDER"]
 CONVERSATION_AGENT_MODEL: str = os.environ["CONVERSATION_AGENT_MODEL"]
 
@@ -28,6 +32,10 @@ REPORT_AGENT_MODEL: str = os.environ["REPORT_AGENT_MODEL"]
 
 ROUTER_PROVIDER: str = os.environ["ROUTER_PROVIDER"]
 ROUTER_MODEL: str = os.environ["ROUTER_MODEL"]
+
+# El Orquestador decide qué sub-agente resuelve cada mensaje.
+ORCHESTRATOR_PROVIDER: str = os.environ["ORCHESTRATOR_PROVIDER"]
+ORCHESTRATOR_MODEL: str = os.environ["ORCHESTRATOR_MODEL"]
 
 # Mensajería
 MESSAGING_PROVIDER: str = os.environ["MESSAGING_PROVIDER"]
