@@ -133,54 +133,34 @@ y límite de iteraciones (default 5) contra loops infinitos.
 Recibe los sub-agentes inyectados por constructor (lista en `main.py`). Agregar
 un agente nuevo no requiere tocar el orquestador (principio O de SOLID).
 
-### Financial Agent (`agents/financial/`) — IMPLEMENTADO (v1)
-Maneja la operatoria financiera contra la base. Mismo patrón que el orquestador
-un nivel más abajo: su LLM elige operaciones de una **lista blanca** y
-`operations.py` valida todo por código antes de tocar la base (montos positivos,
-monedas válidas, cuentas existentes, moneda del movimiento = moneda de la cuenta).
-La aritmética con dinero la hace siempre el código, nunca el LLM.
+### Financial Agent (`agents/financial/`) — IMPLEMENTADO (solo lectura)
+Sub-agente financiero, por ahora de **solo lectura**. Cumple el contrato `Agent`,
+así que el orquestador lo llama igual que a cualquier otro sub-agente. Su LLM elige
+una tool de una **lista blanca**, el código la ejecuta (solo `db.select`) y el LLM
+narra el resultado. Protocolo JSON con `{"action": "read", ...}` /
+`{"action": "respond", ...}`. No tiene ninguna tool que escriba, así que no puede
+mutar la base.
 
-Operaciones actuales:
-
-| Operación | Qué hace |
-|---|---|
-| `crear_cuenta` | Alta de cuenta. Rechaza nombres duplicados. |
-| `listar_cuentas` | Cuentas con saldos. También para resolver nombres aproximados. |
-| `registrar_egreso` | Gasto efectuado. Descuenta `saldo_actual` de la cuenta. |
-| `registrar_ingreso_previsto` | Plata por cobrar (ej: factura emitida). |
-| `listar_ingresos_previstos` | Pendientes de cobro. |
-| `registrar_ingreso_efectuado` | Cobro real. Suma al saldo. Si trae `id_ingreso_previsto`, concilia (el previsto pasa a `confirmado`). |
-| `resumen_mensual` | Ingresos, egresos, ganancia neta y mitad por socio del mes, separado por moneda (nunca mezcla monedas sin tipo de cambio). Solo sobre lo efectuado: la ganancia es plata que existe, no promesas. |
-
-Sin operación de borrado, a propósito: correcciones por SQL manual hasta diseñar
-una anulación segura.
-
-Probado end-to-end por Telegram: lectura de factura desde foto (visión) →
-ingreso previsto → conciliación del cobro → resumen con división por socio.
-
-> Estado actual: temporalmente **desenchufado** de `main.py` durante el desarrollo
-> del Tester Agent (`orchestrator agents=[_tester]`). Los archivos de
-> `agents/financial/` quedan intactos; reactivarlo es volver a registrarlo en `main.py`.
-
-### Tester Agent (`agents/tester/`) — IMPLEMENTADO (solo lectura)
-Agente de prueba de **solo lectura**. Cumple el contrato `Agent`, así que el
-orquestador lo llama igual que a cualquier sub-agente. Mismo mini-loop que el
-financial, pero su caja de herramientas son únicamente tools de lectura
-inyectadas — no tiene ninguna que escriba, así que no puede mutar la base.
-Protocolo JSON con `{"action": "read", ...}` / `{"action": "respond", ...}`.
-
-Sirve como banco de pruebas de la infraestructura de lectura y como primera
-implementación del patrón de tools reutilizables (ver sección Tools).
-
-Tools que consume (de `tools/reads/financial.py`):
+Consume las tools de lectura de `tools/reads/financial.py` (primer uso del patrón
+de tools reutilizables — ver sección Tools):
 
 | Tool | Qué lee |
 |---|---|
 | `buscar_cuentas(nombre?)` | `finanzas.cuenta` — cuentas con saldo, tipo y moneda. |
 | `listar_ingresos_previstos(estado?)` | `finanzas.ingreso_previsto` — por default los `pendiente` (cobros a recibir). |
+| `listar_egresos_previstos(estado?)` | `finanzas.egreso_previsto` — por default los `pendiente` (pagos a hacer). |
+| `listar_ingresos_efectuados()` | `finanzas.ingreso_efectuado` — cobros concretados. |
+| `listar_egresos_efectuados()` | `finanzas.egreso_efectuado` — pagos concretados. |
 
-Probado end-to-end por Telegram: consulta de cuentas (multi-moneda ARS/USD/EUR)
-y de cobros pendientes (filtrando por estado correctamente).
+Probado end-to-end por Telegram: consultas de cuentas (multi-moneda ARS/USD/EUR),
+cobros y pagos previstos (filtrando por estado) y efectuados.
+
+> Historia: existió una v1 de este agente con operaciones de **escritura**
+> (`crear_cuenta`, `registrar_egreso`, `registrar_ingreso_efectuado`,
+> `resumen_mensual`, etc.) validadas en un `operations.py`. Se descartó para
+> consolidar en un único agente de lectura; esa lógica y sus validaciones (montos
+> positivos, moneda del movimiento = moneda de la cuenta, conciliación de previstos)
+> quedan en el historial de git para recuperar cuando se reimplemente la escritura.
 
 Config propia: `TESTER_AGENT_PROVIDER` / `TESTER_AGENT_MODEL` (`.env` + `config/aixo.py`).
 
@@ -585,22 +565,22 @@ regenerar el PDF y para reportes por categoría.
 
 ## Flujo de un mensaje
 
-Ejemplo real (probado): *"me pagaron la factura de Sigma, entró en MP Matías"*
+Ejemplo real (probado): *"¿qué cobros tengo pendientes?"*
 
 1. `providers/messaging/telegram.py` recibe el mensaje y lo normaliza a `IncomingMessage`.
 2. `core/preprocessing/preprocessor.py` lo deja en texto (si era audio lo transcribe;
    si era imagen la describe con visión).
-3. `agents/router.py` lo etiqueta con un intent (ej: `edicion_db`).
+3. `agents/router.py` lo etiqueta con un intent (ej: `consulta_informacion`).
 4. `agents/orchestrator.py` decide: `call_agent` → `financial`, con una instrucción específica.
-5. `agents/financial/agent.py` resuelve con su mini-loop: `listar_ingresos_previstos`
-   (encuentra la factura con su monto e id) → `registrar_ingreso_efectuado` (con
-   conciliación del previsto y actualización del saldo).
+5. `agents/financial/agent.py` resuelve con su mini-loop: elige la tool
+   `listar_ingresos_previstos`, el código la ejecuta (solo `db.select`) y devuelve
+   los cobros pendientes.
 6. El resultado vuelve al orquestador, que redacta la respuesta final (`respond`).
 7. `main.py` (`handle()`, 4 líneas) se la pasa a `telegram.py`, que la envía al usuario.
 
 Patrón general: dos niveles de LLM decidiendo en menús cada vez más chicos
-(orquestador elige agente → agente elige operación), y al final siempre código
-determinista validando antes de tocar la base.
+(orquestador elige agente → agente elige tool), y al final siempre código
+determinista tocando la base — hoy solo lectura.
 
 ---
 
@@ -620,15 +600,16 @@ Detectados durante la construcción; ninguno es bloqueante hoy:
   los agentes resuelvan solos (ej: buscar montos en la base) en vez de preguntar.
 - **PDFs sin procesar**: el Preprocessor procesa imágenes con visión, pero los
   documentos PDF pasan de largo. Por ahora: mandar captura de pantalla.
-- **Idempotencia de movimientos**: mensajes repetidos generan registros duplicados
-  (pasó en pruebas con un gasto cargado dos veces). ARCA ya lo prevé con
-  `idempotency_key`; para el financial falta detectar duplicados sospechosos y preguntar.
+- **Idempotencia de movimientos**: cuando se reimplemente la escritura, mensajes
+  repetidos podrían generar registros duplicados (pasó en pruebas con un gasto
+  cargado dos veces). ARCA ya lo prevé con `idempotency_key`; para el agente de
+  escritura futuro falta detectar duplicados sospechosos y preguntar.
 - **`edited_at` no se actualiza solo**: falta trigger en la base o seteo desde el código.
 - **Provider de Supabase con schema fijo**: `providers/db/supabase.py` tiene
   `finanzas` hardcodeado; generalizar cuando ARCA necesite el schema `facturacion`.
 - **Feedback de formato en el orquestador**: el loop del financial avisa al LLM
   cuando responde con formato inválido; el del orquestador todavía no (mismo fix pendiente).
-- **Prints de `[DEBUG]`**: quedan en orquestador y financial mientras dure el
-  desarrollo activo; sacarlos al pasar a servidor.
+- **Prints de `[DEBUG]`**: quedan en el orquestador mientras dure el desarrollo
+  activo; sacarlos al pasar a servidor.
 - **Confirmación previa a escrituras**: evaluar que operaciones que escriben pidan
   confirmación por Telegram antes de ejecutar (requiere memoria conversacional).

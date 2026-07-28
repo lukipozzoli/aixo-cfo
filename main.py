@@ -6,14 +6,14 @@ from core.vision.factory import build_vision_provider
 from core.preprocessing.preprocessor import Preprocessor
 from agents.router import Router
 from agents.orchestrator import Orchestrator
-from agents.tester.agent import TesterAgent
+from agents.financial.agent import FinancialAgent
 from tools.reads.financial import FinancialReadTools
 from db.client import get_client as get_db_client
 from messaging.client import get_client
 from config.aixo import (
     ROUTER_PROVIDER, ROUTER_MODEL,
     ORCHESTRATOR_PROVIDER, ORCHESTRATOR_MODEL,
-      TESTER_AGENT_PROVIDER, TESTER_AGENT_MODEL,
+    FINANCIAL_AGENT_PROVIDER, FINANCIAL_AGENT_MODEL,
     TRANSCRIPTION_PROVIDER, TRANSCRIPTION_MODEL,
     VISION_PROVIDER, VISION_MODEL,
     get_llm_api_key,
@@ -45,13 +45,13 @@ _router = Router(
 )
 
 
-# Inicializa el Tester Agent: agente de solo lectura para pruebas.
+# Inicializa el Financial Agent: agente financiero, por ahora de solo lectura.
 # Recibe las tools de lectura ya armadas (inyección desde acá).
-_tester = TesterAgent(
+_financial = FinancialAgent(
     llm=build_llm_provider(
-        provider=TESTER_AGENT_PROVIDER,
-        model=TESTER_AGENT_MODEL,
-        api_key=get_llm_api_key(TESTER_AGENT_PROVIDER),
+        provider=FINANCIAL_AGENT_PROVIDER,
+        model=FINANCIAL_AGENT_MODEL,
+        api_key=get_llm_api_key(FINANCIAL_AGENT_PROVIDER),
     ),
     tools=FinancialReadTools(db=get_db_client()),
 )
@@ -64,7 +64,7 @@ _orchestrator = Orchestrator(
         model=ORCHESTRATOR_MODEL,
         api_key=get_llm_api_key(ORCHESTRATOR_PROVIDER),
     ),
-    agents=[_tester],
+    agents=[_financial],
 )
 
 async def handle(message: IncomingMessage) -> None:

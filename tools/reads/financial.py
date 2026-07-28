@@ -30,3 +30,22 @@ class FinancialReadTools:
         if estado:
             return self._db.select("ingreso_previsto", {"estado": estado})
         return self._db.select("ingreso_previsto")
+
+    def listar_egresos_previstos(self, estado: str | None = "pendiente") -> list[dict]:
+        # Lee los egresos previstos (plata por pagar). Por defecto los 'pendiente'
+        # (los pagos a hacer). Solo lectura.
+        if estado:
+            return self._db.select("egreso_previsto", {"estado": estado})
+        return self._db.select("egreso_previsto")
+
+    def listar_ingresos_efectuados(self) -> list[dict]:
+        # Lee los ingresos efectuados: la plata que realmente entró (cobros
+        # concretados). Devuelve todos; el filtro por mes lo hará la capa de
+        # reporte, no la tool. Solo lectura.
+        return self._db.select("ingreso_efectuado")
+
+    def listar_egresos_efectuados(self) -> list[dict]:
+        # Lee los egresos efectuados: la plata que realmente salió (pagos
+        # concretados). Devuelve todos; el filtro por mes lo hará la capa de
+        # reporte. Solo lectura.
+        return self._db.select("egreso_efectuado")

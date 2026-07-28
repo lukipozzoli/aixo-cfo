@@ -9,13 +9,13 @@ La primera implementación es para **AIXO Studio**, pero el core es genérico: t
 ```
 Telegram → Preprocessor → Router → Orquestador → Financial Agent → Supabase
   (sin      (Whisper +     (LLM:     (LLM:         (LLM: elige      (sin
-   LLM)      visión)       etiqueta)  decide)       operación)       LLM)
+   LLM)      visión)       etiqueta)  decide)       tool)            LLM)
 ```
 
 - **Preprocessor**: convierte todo a texto (transcribe audios con Whisper, describe imágenes con visión).
 - **Router**: clasifica cada mensaje en un intent (LLM barato).
 - **Orquestador**: decide qué sub-agente resuelve el pedido y puede encadenar varios.
-- **Financial Agent**: opera sobre la base de datos con operaciones validadas (registrar gastos, ingresos, conciliar facturas, resumen mensual).
+- **Financial Agent**: consulta la base de datos (cuentas, ingresos y egresos, previstos y efectuados). Por ahora solo lectura.
 
 El detalle completo está en [`docs/context.md`](docs/context.md).
 
@@ -119,7 +119,7 @@ Los registros quedan en Supabase → Table Editor → schema `finanzas` (verific
 ├── agents/
 │   ├── router.py         # Clasificador de intents
 │   ├── orchestrator.py   # Orquestador: decide y encadena sub-agentes
-│   └── financial/        # Financial Agent (agent.py + prompt.py + operations.py)
+│   └── financial/        # Financial Agent (agent.py + prompt.py) — solo lectura
 ├── db/migrations/        # DDL versionado de la base de datos
 └── docs/context.md       # Documentación viva: arquitectura, tablas, decisiones
 ```
