@@ -206,7 +206,7 @@ El schema `public` contiene la estructura de la empresa (fuera del scope de este
 
 **Creadas en Supabase** (DDL versionado en `db/migrations/001_finanzas.sql`, que es
 la fuente de verdad de los tipos exactos): `cuenta`, `ingreso_previsto`,
-`egreso_previsto`, `ingreso_efectuado`, `egreso_efectuado`, `liquidacion_mensual`.
+`egreso_previsto`, `ingreso_efectuado`, `egreso_efectuado`.
 
 **Pendientes de crear**: `inversion`, `prestamo`, `snapshot_cuenta`,
 `snapshot_inversion`, `snapshot_prestamo` (schema `finanzas`) y las tres de
@@ -227,7 +227,7 @@ Seguridad y acceso:
 
 ### Schema `finanzas`
 
-Contiene toda la lógica financiera del agente: movimientos de dinero, liquidaciones
+Contiene toda la lógica financiera del agente: movimientos de dinero
 y proyecciones. Es el núcleo del sistema — todos los demás schemas se conectan con
 este a través de FKs.
 
@@ -408,32 +408,6 @@ Permite reconstruir la evolución de deudas a lo largo del tiempo.
 | `monto_pendiente` | `float8` | |
 | `fecha` | `date` | |
 | `created_at` | `timestamp` | |
-
----
-
-#### `liquidacion_mensual`
-Liquidación mensual de ganancias entre socios.
-Se calcula a fin de mes sobre los ingresos y egresos efectuados del período.
-
-| Columna | Tipo | Notas |
-|---------|------|-------|
-| `id` | `uuid` | PK |
-| `periodo` | `date` | Primer día del mes (ej: 2025-07-01) |
-| `moneda` | `text` | `ARS`, `USD` |
-| `tipo_cambio_referencia` | `float8` | Tipo de cambio usado para el período, Nullable |
-| `ingresos_total` | `float8` | Suma de todos los `ingreso_efectuado` del mes |
-| `egresos_total` | `float8` | Suma de todos los `egreso_efectuado` del mes |
-| `ganancia_neta` | `float8` | `ingresos_total - egresos_total` |
-| `monto_retenido_caja` | `float8` | Lo que queda en caja sin dividir, default 0 |
-| `porcentaje_socio_1` | `float8` | Default 50 |
-| `porcentaje_socio_2` | `float8` | Default 50 |
-| `monto_socio_1` | `float8` | |
-| `monto_socio_2` | `float8` | |
-| `estado` | `text` | `pendiente`, `transferido` |
-| `fecha_transferencia` | `date` | Nullable |
-| `notas` | `text` | Nullable |
-| `created_at` | `timestamp` | |
-| `edited_at` | `timestamp` | |
 
 ---
 

@@ -71,28 +71,6 @@ create table finanzas.egreso_efectuado (
   edited_at           timestamptz not null default now()
 );
 
--- Liquidación mensual de ganancias entre socios. Una por período y moneda.
-create table finanzas.liquidacion_mensual (
-  id                      uuid primary key default gen_random_uuid(),
-  periodo                 date not null,  -- primer día del mes (ej: 2026-07-01)
-  moneda                  text not null check (moneda in ('ARS', 'USD')),
-  tipo_cambio_referencia  numeric(12,6),
-  ingresos_total          numeric(15,2) not null,
-  egresos_total           numeric(15,2) not null,
-  ganancia_neta           numeric(15,2) not null,
-  monto_retenido_caja     numeric(15,2) not null default 0,
-  porcentaje_socio_1      numeric(5,2) not null default 50,
-  porcentaje_socio_2      numeric(5,2) not null default 50,
-  monto_socio_1           numeric(15,2) not null,
-  monto_socio_2           numeric(15,2) not null,
-  estado                  text not null default 'pendiente' check (estado in ('pendiente', 'transferido')),
-  fecha_transferencia     date,
-  notas                   text,
-  created_at              timestamptz not null default now(),
-  edited_at               timestamptz not null default now(),
-  unique (periodo, moneda)  -- evita liquidar dos veces el mismo mes en la misma moneda
-);
-
 -- Permisos del schema finanzas para el rol de backend (service_role).
 -- Solo service_role: la anon key queda sin acceso, como corresponde.
 grant usage on schema finanzas to service_role;

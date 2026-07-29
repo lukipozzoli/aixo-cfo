@@ -1,6 +1,6 @@
 # Agente CFO
 
-Agente de IA financiero multi-agente. Gestiona las finanzas de una empresa de manera autónoma: registra movimientos, concilia facturas con cobros, calcula resúmenes mensuales con división de ganancias entre socios, y conversa por Telegram.
+Agente de IA financiero multi-agente. Gestiona las finanzas de una empresa de manera autónoma: registra movimientos, concilia facturas con cobros, y conversa por Telegram.
 
 La primera implementación es para **AIXO Studio**, pero el core es genérico: todo lo específico de la empresa vive en configuración (`.env` + `config/`), nunca en la lógica. El proyecto está pensado para reimplementarse en otras empresas sin tocar el código.
 
@@ -100,7 +100,6 @@ Por Telegram, en orden:
 1. `creá una cuenta que se llame Banco Test, bancaria, en pesos` → confirma la creación
 2. `cargá un gasto de 1000 pesos de prueba en Banco Test` → registra el gasto y descuenta el saldo
 3. `qué cuentas tengo?` → lista la cuenta con saldo -1000
-4. `cómo venimos este mes?` → resumen con ingresos, egresos, ganancia neta y mitad por socio
 
 También acepta **audios** (los transcribe) e **imágenes de facturas** (las lee con visión y las carga como ingresos previstos). Los PDF todavía no se procesan — mandar captura de pantalla.
 
