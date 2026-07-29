@@ -5,6 +5,7 @@ from core.intents import Intent
 from core.llm.base import LLMProvider
 from core.messaging.base import IncomingMessage
 from tools.reads.financial import FinancialReadTools
+from reports.financial import FinancialReports
 from agents.financial.prompt import SYSTEM_PROMPT
 
 
@@ -16,12 +17,20 @@ class FinancialAgent(Agent):
     name = "financial"
     description = (
         "Agente financiero de solo lectura. Consulta cuentas, ingresos y egresos "
-        "(previstos y efectuados). No modifica nada en la base."
+        "(previstos y efectuados), y calcula el resultado de un mes separado "
+        "por moneda. No modifica nada en la base."
     )
 
-    def __init__(self, llm: LLMProvider, tools: FinancialReadTools, max_iterations: int = 5):
+    def __init__(
+        self,
+        llm: LLMProvider,
+        tools: FinancialReadTools,
+        reports: FinancialReports,
+        max_iterations: int = 5,
+    ):
         self._llm = llm
         self._max_iterations = max_iterations
+        self._reports = reports
         # Lista blanca: el LLM solo puede invocar lo que está registrado acá.
         # Todas son de lectura — por diseño, este agente no tiene ninguna
         # herramienta que escriba.
@@ -31,6 +40,11 @@ class FinancialAgent(Agent):
             "listar_egresos_previstos": tools.listar_egresos_previstos,
             "listar_ingresos_efectuados": tools.listar_ingresos_efectuados,
             "listar_egresos_efectuados": tools.listar_egresos_efectuados,
+            # Un reporte devuelve números ya calculados; una tool devuelve datos
+            # crudos. Conviven en la misma whitelist porque para el LLM son lo
+            # mismo: algo que puede pedir. Y las dos son de solo lectura, así que
+            # el protocolo {"action": "read"} sirve igual para ambas.
+            "resultado_mensual_por_moneda": reports.resultado_mensual_por_moneda,
         }
 
     async def handle(self, message: IncomingMessage, intent: Intent, instruction: str) -> AgentResult:

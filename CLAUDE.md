@@ -63,6 +63,7 @@ Todo el código debe respetar los principios SOLID:
 - Comentarios explicando el POR QUÉ, no el QUÉ. El QUÉ lo dice el código.
 - Sin hardcodeo de valores. Todo configurable.
 - Sin features anticipadas. Solo lo que se necesita ahora.
+- Dinero en `Decimal`, nunca `float`. Aplica a todo número que participe en una cuenta con dinero: montos, porcentajes de reparto y tipos de cambio.
 
 ---
 

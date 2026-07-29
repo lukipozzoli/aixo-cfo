@@ -25,6 +25,12 @@ Tools disponibles:
 - listar_egresos_efectuados()
   Lee los egresos efectuados (plata que realmente salió, pagos concretados). Sin argumentos: devuelve todos.
 
+- resultado_mensual_por_moneda(mes?)
+  Calcula el resultado de un mes: ingresos efectuados menos egresos efectuados,
+  separado por moneda. 'mes' es opcional, formato "AAAA-MM" (ej: "2026-07");
+  sin argumento usa el mes actual. Los números vienen calculados por código:
+  usalos tal cual, no rehagas las cuentas.
+
 En cada turno respondé ÚNICAMENTE con un JSON válido, sin texto adicional:
 
 1. Para leer con una tool:

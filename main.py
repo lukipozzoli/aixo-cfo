@@ -8,6 +8,7 @@ from agents.router import Router
 from agents.orchestrator import Orchestrator
 from agents.financial.agent import FinancialAgent
 from tools.reads.financial import FinancialReadTools
+from reports.financial import FinancialReports
 from db.client import get_client as get_db_client
 from messaging.client import get_client
 from config.aixo import (
@@ -44,16 +45,20 @@ _router = Router(
     )
 )
 
+# Un único cliente de base de datos, compartido por las tools y los reportes:
+# los dos dependen de la misma abstracción, no hace falta una conexión por cada uno.
+_db = get_db_client()
 
 # Inicializa el Financial Agent: agente financiero, por ahora de solo lectura.
-# Recibe las tools de lectura ya armadas (inyección desde acá).
+# Recibe las tools de lectura y los reportes ya armados (inyección desde acá).
 _financial = FinancialAgent(
     llm=build_llm_provider(
         provider=FINANCIAL_AGENT_PROVIDER,
         model=FINANCIAL_AGENT_MODEL,
         api_key=get_llm_api_key(FINANCIAL_AGENT_PROVIDER),
     ),
-    tools=FinancialReadTools(db=get_db_client()),
+    tools=FinancialReadTools(db=_db),
+    reports=FinancialReports(db=_db),
 )
 
 # Inicializa el Orquestador con su LLM y los sub-agentes registrados.

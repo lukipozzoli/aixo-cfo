@@ -152,8 +152,15 @@ de tools reutilizables — ver sección Tools):
 | `listar_ingresos_efectuados()` | `finanzas.ingreso_efectuado` — cobros concretados. |
 | `listar_egresos_efectuados()` | `finanzas.egreso_efectuado` — pagos concretados. |
 
+Y los reportes de `reports/financial.py` (ver sección Reportes):
+
+| Reporte | Qué calcula |
+|---|---|
+| `resultado_mensual_por_moneda(mes?)` | Resultado de un mes: ingresos menos egresos efectuados, agrupado por moneda. |
+
 Probado end-to-end por Telegram: consultas de cuentas (multi-moneda ARS/USD/EUR),
-cobros y pagos previstos (filtrando por estado) y efectuados.
+cobros y pagos previstos (filtrando por estado) y efectuados, y el resultado
+mensual por moneda (con mes explícito y sin él).
 
 > Historia: existió una v1 de este agente con operaciones de **escritura**
 > (`crear_cuenta`, `registrar_egreso`, `registrar_ingreso_efectuado`,
@@ -162,7 +169,7 @@ cobros y pagos previstos (filtrando por estado) y efectuados.
 > positivos, moneda del movimiento = moneda de la cuenta, conciliación de previstos)
 > quedan en el historial de git para recuperar cuando se reimplemente la escritura.
 
-Config propia: `TESTER_AGENT_PROVIDER` / `TESTER_AGENT_MODEL` (`.env` + `config/aixo.py`).
+Config propia: `FINANCIAL_AGENT_PROVIDER` / `FINANCIAL_AGENT_MODEL` (`.env` + `config/aixo.py`).
 
 ### Conversation Agent — A IMPLEMENTAR
 Presenta información al usuario en lenguaje natural. Maneja el ida y vuelta conversacional.
@@ -192,7 +199,33 @@ que un agente de solo lectura no pueda mutar la base, por construcción. Cuando 
 falta, se sumará `tools/writes/` para las de escritura.
 
 Implementado: `tools/reads/financial.py` → `FinancialReadTools`
-(`buscar_cuentas`, `listar_ingresos_previstos`).
+(`buscar_cuentas`, `listar_ingresos_previstos`, `listar_egresos_previstos`,
+`listar_ingresos_efectuados`, `listar_egresos_efectuados`).
+
+## Reportes
+
+Un **reporte** devuelve números ya calculados; una **tool** devuelve datos crudos.
+Viven separados (`reports/`, hermana de `tools/`) porque son cosas distintas, pero
+conviven en la misma lista blanca del agente: para el LLM los dos son "algo que
+puedo pedir", y los dos son de solo lectura.
+
+Regla que justifica que existan: **la aritmética con dinero la hace siempre el
+código, nunca el LLM.** Un LLM predice texto, no calcula. El LLM elige qué reporte
+pedir; los números los pone el código.
+
+Los reportes dependen de la abstracción `DatabaseClient` y se inyectan por
+constructor desde `main.py`, igual que las tools. No consumen las tools: son sus
+pares, no sus clientes.
+
+Implementado: `reports/financial.py` → `FinancialReports`
+
+| Reporte | Qué calcula |
+|---|---|
+| `resultado_mensual_por_moneda(mes?)` | Ingresos efectuados menos egresos efectuados de un mes, agrupado por moneda. `mes` en formato `AAAA-MM`; sin argumento, el mes actual. Devuelve `Decimal` con 2 decimales. |
+
+Detalles de implementación: agrupa por las monedas presentes en los datos (no por
+una lista fija), nunca suma monedas distintas entre sí, y el filtro por mes se hace
+en Python porque `DatabaseClient` solo filtra por igualdad exacta.
 
 ## Base de datos
 
