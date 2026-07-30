@@ -54,7 +54,7 @@ class Orchestrator:
         ]
 
         for _ in range(self._max_iterations):
-            response = self._llm.chat(history)
+            response = await self._llm.chat(history)
             decision = self._parse_decision(response)
             print(f"[DEBUG] Decisión del LLM: {decision}")
 
@@ -81,6 +81,7 @@ class Orchestrator:
                         instruction=decision.get("instruction", ""),
                     )
                     result_text = self._format_result(agent_name, result)
+                    print(f"[DEBUG] Resultado del agente: {result_text}")
 
                 # La decisión del LLM y el resultado del agente se agregan al
                 # historial para que el próximo turno decida con esa información.

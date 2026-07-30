@@ -1,4 +1,4 @@
-from openai import OpenAI
+from openai import AsyncOpenAI
 from core.llm.base import LLMProvider
 
 
@@ -7,19 +7,19 @@ class OpenAIProvider(LLMProvider):
     # Recibe config desde afuera — este provider no sabe nada de AIXO.
 
     def __init__(self, api_key: str, model: str, max_tokens: int = 1024):
-        self._client = OpenAI(api_key=api_key)
+        self._client = AsyncOpenAI(api_key=api_key)
         self._model = model
         self._max_tokens = max_tokens
 
-    def chat(self, messages: list[dict], **kwargs) -> str:
+    async def chat(self, messages: list[dict], **kwargs) -> str:
         # La API de OpenAI acepta el system prompt como un mensaje más con role "system",
         # así que no hace falta separarlo como en Anthropic.
-        response = self._client.chat.completions.create(
+        response = await self._client.chat.completions.create(
             model=self._model,
             max_tokens=kwargs.get("max_tokens", self._max_tokens),
             messages=messages,
         )
         return response.choices[0].message.content
 
-    def complete(self, prompt: str, **kwargs) -> str:
-        return self.chat([{"role": "user", "content": prompt}], **kwargs)
+    async def complete(self, prompt: str, **kwargs) -> str:
+        return await self.chat([{"role": "user", "content": prompt}], **kwargs)

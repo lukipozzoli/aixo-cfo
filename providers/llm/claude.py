@@ -8,11 +8,11 @@ class ClaudeProvider(LLMProvider):
 
     def __init__(self, api_key: str, model: str, max_tokens: int = 1024):
         # Recibe config desde afuera — este provider no sabe nada de AIXO.
-        self._client = anthropic.Anthropic(api_key=api_key)
+        self._client = anthropic.AsyncAnthropic(api_key=api_key)
         self._model = model
         self._max_tokens = max_tokens
 
-    def chat(self, messages: list[dict], **kwargs) -> str:
+    async def chat(self, messages: list[dict], **kwargs) -> str:
         # Filtra el system prompt si viene en el primer mensaje con role "system",
         # porque la API de Anthropic lo recibe como parámetro separado.
         system = None
@@ -31,9 +31,9 @@ class ClaudeProvider(LLMProvider):
         if system:
             params["system"] = system
 
-        response = self._client.messages.create(**params)
+        response = await self._client.messages.create(**params)
         return response.content[0].text
 
-    def complete(self, prompt: str, **kwargs) -> str:
+    async def complete(self, prompt: str, **kwargs) -> str:
         # Envuelve el prompt como un mensaje de usuario para reutilizar chat().
-        return self.chat([{"role": "user", "content": prompt}], **kwargs)
+        return await self.chat([{"role": "user", "content": prompt}], **kwargs)

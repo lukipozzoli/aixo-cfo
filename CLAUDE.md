@@ -40,7 +40,7 @@ Todo el código debe respetar los principios SOLID:
 
 ### Independencia del modelo de LLM
 - El agente no depende de ningún proveedor específico de LLM.
-- Existe una interfaz abstracta `LLMProvider` con métodos `chat()` y `complete()`.
+- Existe una interfaz abstracta `LLMProvider` con métodos `async chat()` y `async complete()`.
 - Las implementaciones concretas (`ClaudeProvider`, `OpenAIProvider`, etc.) se configuran por empresa.
 - El core nunca importa directamente ningún SDK de LLM.
 
@@ -48,6 +48,11 @@ Todo el código debe respetar los principios SOLID:
 - Los cron jobs no dependen de ninguna tecnología específica de scheduling.
 - Existe una interfaz abstracta `Scheduler` con métodos `register_job()` y `run()`.
 - La implementación concreta (APScheduler, Railway, cron del sistema) se configura por empresa.
+
+### Concurrencia
+- Las llamadas de red que tardan (LLM, visión, transcripción) van por interfaces `async`. Una llamada sincrónica bloquea el event loop y congela el proceso entero mientras dura.
+- La política de concurrencia —procesar mensajes en paralelo o de a uno— vive en el composition root (`main.py`), nunca adentro de un provider. Cambiar de proveedor de mensajería tiene que cambiar el canal, no el comportamiento.
+- Toda tarea lanzada con `asyncio.create_task` se guarda en un set con referencia fuerte y reporta sus errores por callback. Sin la referencia el recolector de basura puede matarla a mitad de camino; sin el callback la excepción no la ve nadie.
 
 ---
 

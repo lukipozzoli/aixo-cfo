@@ -63,7 +63,7 @@ Este patrón garantiza que cambiar de proveedor (de Supabase a Postgres, de Clau
 ### Providers implementados
 
 #### LLM (`core/llm/base.py` → `LLMProvider`)
-Métodos: `chat(messages)`, `complete(prompt)`
+Métodos: `async chat(messages)`, `async complete(prompt)`
 Factory: `core/llm/factory.py` → `build_llm_provider(provider, model, api_key)`
 
 | Provider | Archivo | Variable de selección |
@@ -96,6 +96,40 @@ Factory: `messaging/client.py` → `get_client()`
 #### Scheduler (`core/scheduler/base.py` → `Scheduler`)
 Métodos: `register_job(job_id, func, cron_expr)`, `run()`
 *Implementación concreta: a definir.*
+
+---
+
+## Concurrencia
+
+Todo el sistema corre sobre un único event loop de asyncio. `async` no reparte el
+trabajo en varios hilos: la concurrencia sale de que cada espera de red ceda el
+control con `await`. Una llamada sincrónica que tarda segundos no cede nada y
+congela el proceso entero mientras dura.
+
+Por eso las interfaces de las esperas largas son `async`: `LLMProvider`,
+`VisionProvider` y `TranscriptionProvider`. `DatabaseClient` todavía es sincrónico
+(ver Pendientes técnicos).
+
+**Dónde vive la decisión de procesar en paralelo.** En `main.py`, no en los
+providers. `main.py` no le pasa su `handle` directamente a `listen()`: le pasa un
+`dispatch` que lanza el pipeline como tarea y vuelve enseguida. El provider hace su
+`await handler(...)` de siempre, ese await vuelve al instante, y el loop sigue
+recibiendo.
+
+El motivo es de arquitectura: procesar en paralelo es una política de la
+aplicación, no un detalle del transporte. Si la decidiera cada provider, cambiar de
+mensajería cambiaría el comportamiento además del canal — y la regla del proyecto
+es que cambiar de proveedor sea cambiar una variable del `.env`. Además, así
+cualquier mensajería futura (WhatsApp, iMessage, web) hereda el comportamiento sin
+escribir una línea.
+
+**Manejo de errores y de tareas.** Dos defensas, las dos en `main.py`:
+- `handle` tiene un `try/except` que le responde al usuario si algo falla, en vez
+  de dejarlo esperando. Antes una excepción se llevaba puesto el loop de mensajería
+  y el bot dejaba de atender a todos; ahora solo se cae el mensaje que falló.
+- Cada tarea se guarda en un set (`_tareas_en_vuelo`) y reporta sus errores por
+  callback. asyncio guarda solo una referencia débil a las tareas, así que sin el
+  set el recolector de basura puede matar una a mitad de camino.
 
 ---
 
@@ -574,7 +608,10 @@ regenerar el PDF y para reportes por categoría.
 
 Ejemplo real (probado): *"¿qué cobros tengo pendientes?"*
 
-1. `providers/messaging/telegram.py` recibe el mensaje y lo normaliza a `IncomingMessage`.
+1. `providers/messaging/telegram.py` recibe el mensaje y lo normaliza a `IncomingMessage`,
+   y se lo entrega al `dispatch` de `main.py`, que lo lanza como tarea y vuelve
+   enseguida (ver Concurrencia). Los pasos que siguen corren en esa tarea, en
+   paralelo con los de cualquier otro mensaje que esté en curso.
 2. `core/preprocessing/preprocessor.py` lo deja en texto (si era audio lo transcribe;
    si era imagen la describe con visión).
 3. `agents/router.py` lo etiqueta con un intent (ej: `consulta_informacion`).
@@ -583,7 +620,7 @@ Ejemplo real (probado): *"¿qué cobros tengo pendientes?"*
    `listar_ingresos_previstos`, el código la ejecuta (solo `db.select`) y devuelve
    los cobros pendientes.
 6. El resultado vuelve al orquestador, que redacta la respuesta final (`respond`).
-7. `main.py` (`handle()`, 4 líneas) se la pasa a `telegram.py`, que la envía al usuario.
+7. `main.py` (`handle()`) se la pasa a `telegram.py`, que la envía al usuario.
 
 Patrón general: dos niveles de LLM decidiendo en menús cada vez más chicos
 (orquestador elige agente → agente elige tool), y al final siempre código
@@ -616,7 +653,37 @@ Detectados durante la construcción; ninguno es bloqueante hoy:
   `finanzas` hardcodeado; generalizar cuando ARCA necesite el schema `facturacion`.
 - **Feedback de formato en el orquestador**: el loop del financial avisa al LLM
   cuando responde con formato inválido; el del orquestador todavía no (mismo fix pendiente).
-- **Prints de `[DEBUG]`**: quedan en el orquestador mientras dure el desarrollo
-  activo; sacarlos al pasar a servidor.
+- **Prints de `[DEBUG]`**: quedan en el orquestador y en el Financial Agent mientras
+  dure el desarrollo activo; sacarlos al pasar a servidor.
 - **Confirmación previa a escrituras**: evaluar que operaciones que escriben pidan
   confirmación por Telegram antes de ejecutar (requiere memoria conversacional).
+- **El orden de los mensajes ya no está garantizado**: desde que `main.py` despacha
+  cada mensaje como tarea, dos mensajes seguidos pueden terminar al revés — el
+  segundo contesta antes si necesita menos pasos (verificado en pruebas). Hoy es
+  inofensivo porque el agente es de solo lectura. **Bloqueante para reimplementar la
+  escritura**: "cargá un gasto de 100" seguido de "no, eran 200" podría aplicarse
+  invertido. Va junto con la race condition de abajo. Salida propuesta: procesar en
+  paralelo entre chats distintos, pero secuencialmente dentro del mismo chat.
+- **Race condition en el saldo**: la escritura vieja hacía `saldo = leer` →
+  `saldo - monto` → `escribir`, sin transacción. Con procesamiento concurrente, dos
+  movimientos sobre la misma cuenta pueden leer el mismo saldo y pisarse. Resolver
+  antes de reactivar la escritura.
+- **`DatabaseClient` sigue siendo sincrónico**: `providers/db/supabase.py` usa el
+  cliente sync de supabase-py, así que cada `select` bloquea el event loop. Es el
+  mismo problema que se arregló en `LLMProvider`, pero mucho menos grave: una query
+  tarda decenas de milisegundos contra los segundos de un LLM. Migrar cuando moleste.
+- **El Financial Agent afirma filtros que no aplicó**: preguntándole por "los
+  ingresos de Luciano de este mes" llamó a `listar_ingresos_efectuados()` sin
+  argumentos —la tool no filtra ni por persona ni por fecha— y presentó **todos** los
+  movimientos como si fueran de Luciano y de este mes. No inventó ningún número, pero
+  sí las etiquetas. Su prompt prohíbe inventar datos; falta prohibir afirmar
+  condiciones que ninguna tool aplicó.
+- **Falta una tool que liste movimientos por mes**: hay un reporte que filtra por mes
+  pero devuelve totales, y tools que devuelven detalle pero sin filtrar. No hay forma
+  de pedir "el detalle de julio". Es parte de por qué el agente improvisó arriba.
+- **El agente pide tools de más**: para "cómo venimos este mes" llamó a
+  `listar_ingresos_efectuados`, `listar_egresos_efectuados` y recién después a
+  `resultado_mensual_por_moneda`, que ya respondía todo. Los números finales salieron
+  bien, pero se pagaron 3 consultas y 4 llamadas al LLM donde alcanzaba con 1 y 2.
+  Falta decirle en el prompt que si hay un reporte que responde el pedido, lo use en
+  vez de armarlo a mano.

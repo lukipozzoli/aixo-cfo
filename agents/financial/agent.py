@@ -59,17 +59,20 @@ class FinancialAgent(Agent):
         # Mini loop agéntico: decidir → leer → ver resultado → decidir de nuevo,
         # con límite de vueltas para no ciclar infinito.
         for _ in range(self._max_iterations):
-            response = self._llm.chat(history)
+            response = await self._llm.chat(history)
             decision = self._parse(response)
+            print(f"[DEBUG] financial decidió: {decision}")
 
             if decision is None:
                 return AgentResult(text="No pude interpretar la instrucción recibida.", success=False)
 
             if decision.get("action") == "respond":
+                print(f"[DEBUG] financial respondió: {decision.get('text', '')}")
                 return AgentResult(text=decision.get("text", ""))
 
             elif decision.get("action") == "read":
                 result_text = self._read(decision)
+                print(f"[DEBUG] financial leyó: {result_text[:400]}")
                 history.append({"role": "assistant", "content": response})
                 history.append({"role": "user", "content": result_text})
 

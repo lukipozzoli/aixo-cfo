@@ -1,4 +1,5 @@
 import asyncio
+import traceback
 from core.messaging.base import IncomingMessage
 from core.llm.factory import build_llm_provider
 from core.transcription.factory import build_transcription_provider
@@ -72,17 +73,56 @@ _orchestrator = Orchestrator(
     agents=[_financial],
 )
 
+# Tareas en vuelo. asyncio guarda solo una referencia débil a cada tarea, así que
+# sin este set el recolector de basura puede matar una a mitad de camino.
+_tareas_en_vuelo: set[asyncio.Task] = set()
+
+
 async def handle(message: IncomingMessage) -> None:
     # Pipeline: Preprocessor → Router → Orchestrator → send.
-    message = await _preprocessor.process(message)
-    intent = _router.classify(message)
-    response = await _orchestrator.run(message, intent)
-    await _messaging.send(message.chat_id, response)
+    #
+    # El try/except vive acá para que un error termine en una respuesta al usuario
+    # y no en un silencio. Antes una excepción se llevaba puesto el loop de
+    # mensajería entero y el bot dejaba de atender a todos; ahora solo se cae
+    # el mensaje que falló.
+    try:
+        message = await _preprocessor.process(message)
+        intent = await _router.classify(message)
+        response = await _orchestrator.run(message, intent)
+        await _messaging.send(message.chat_id, response)
+    except Exception:
+        traceback.print_exc()
+        await _messaging.send(
+            message.chat_id,
+            "Se me complicó procesando eso. Probá de nuevo en un momento.",
+        )
 
+
+def _reportar_error(tarea: asyncio.Task) -> None:
+    # Red de seguridad por si algo se escapó del try/except de handle (por ejemplo,
+    # que falle el propio send). Sin esto la excepción queda guardada adentro de la
+    # tarea y no se entera nadie.
+    if not tarea.cancelled() and tarea.exception() is not None:
+        traceback.print_exception(tarea.exception())
+
+
+async def dispatch(message: IncomingMessage) -> None:
+    # Lanza el pipeline como tarea y vuelve enseguida, para que el proveedor de
+    # mensajería pueda seguir recibiendo mientras este mensaje se procesa.
+    #
+    # Esta decisión vive acá y no adentro de un provider a propósito: procesar en
+    # paralelo es una política de la aplicación, no un detalle del transporte. Si
+    # la tomara cada provider por su cuenta, cambiar de mensajería cambiaría el
+    # comportamiento además del canal — y la idea es que cambiar de proveedor sea
+    # cambiar una variable del .env, nada más.
+    tarea = asyncio.create_task(handle(message))
+    _tareas_en_vuelo.add(tarea)
+    tarea.add_done_callback(_tareas_en_vuelo.discard)
+    tarea.add_done_callback(_reportar_error)
 
 async def main() -> None:
     print("Agente CFO iniciado. Escuchando mensajes...")
-    await _messaging.listen(handle)
+    await _messaging.listen(dispatch)
 
 
 if __name__ == "__main__":
