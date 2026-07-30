@@ -183,8 +183,15 @@ de tools reutilizables — ver sección Tools):
 | `buscar_cuentas(nombre?)` | `finanzas.cuenta` — cuentas con saldo, tipo y moneda. |
 | `listar_ingresos_previstos(estado?)` | `finanzas.ingreso_previsto` — por default los `pendiente` (cobros a recibir). |
 | `listar_egresos_previstos(estado?)` | `finanzas.egreso_previsto` — por default los `pendiente` (pagos a hacer). |
-| `listar_ingresos_efectuados()` | `finanzas.ingreso_efectuado` — cobros concretados. |
-| `listar_egresos_efectuados()` | `finanzas.egreso_efectuado` — pagos concretados. |
+| `listar_ingresos_efectuados(mes?)` | `finanzas.ingreso_efectuado` — cobros concretados. `mes` en formato `AAAA-MM`; sin él devuelve todos. |
+| `listar_egresos_efectuados(mes?)` | `finanzas.egreso_efectuado` — pagos concretados. `mes` en formato `AAAA-MM`; sin él devuelve todos. |
+
+Las dos de efectuados cambian el `id_cuenta` por el nombre de la cuenta antes de
+devolver: un UUID crudo no le dice nada al usuario, y resolver el cruce en la tool
+evita que el agente tenga que juntar dos listas a ojo —trabajo que no conviene
+delegarle a un LLM— y le ahorra una vuelta de loop. Si un id no matchea con ninguna
+cuenta se deja como estaba, para que un dato inconsistente se vea en vez de
+desaparecer.
 
 Y los reportes de `reports/financial.py` (ver sección Reportes):
 
@@ -195,6 +202,21 @@ Y los reportes de `reports/financial.py` (ver sección Reportes):
 Probado end-to-end por Telegram: consultas de cuentas (multi-moneda ARS/USD/EUR),
 cobros y pagos previstos (filtrando por estado) y efectuados, y el resultado
 mensual por moneda (con mes explícito y sin él).
+
+**La fecha de hoy se le pasa en el contexto** (`agents/financial/agent.py`, en el
+primer mensaje del historial). Un LLM no tiene forma de saber en qué día está: sin
+esto, ante un "este mes" o un "julio" adivinaría el período y devolvería datos de
+otro mes sin que nada avise. Con la fecha adelante resuelve "julio" → `2026-07`
+solo.
+
+**Su prompt lleva tres reglas que no son de formato sino de honestidad**, agregadas
+después de que el agente presentara movimientos sin filtrar como si fueran "de
+Luciano" y "de este mes":
+- No afirmar condiciones que no aplicó.
+- Si un filtro del pedido no lo cubre ninguna tool, decirlo y entregar igual lo que
+  sí puede, en la misma respuesta.
+- Si hay un reporte que ya responde el pedido, usarlo en vez de combinar tools a
+  mano (ver Pendientes: son garantías probabilísticas, no del código).
 
 > Historia: existió una v1 de este agente con operaciones de **escritura**
 > (`crear_cuenta`, `registrar_egreso`, `registrar_ingreso_efectuado`,
@@ -672,18 +694,8 @@ Detectados durante la construcción; ninguno es bloqueante hoy:
   cliente sync de supabase-py, así que cada `select` bloquea el event loop. Es el
   mismo problema que se arregló en `LLMProvider`, pero mucho menos grave: una query
   tarda decenas de milisegundos contra los segundos de un LLM. Migrar cuando moleste.
-- **El Financial Agent afirma filtros que no aplicó**: preguntándole por "los
-  ingresos de Luciano de este mes" llamó a `listar_ingresos_efectuados()` sin
-  argumentos —la tool no filtra ni por persona ni por fecha— y presentó **todos** los
-  movimientos como si fueran de Luciano y de este mes. No inventó ningún número, pero
-  sí las etiquetas. Su prompt prohíbe inventar datos; falta prohibir afirmar
-  condiciones que ninguna tool aplicó.
-- **Falta una tool que liste movimientos por mes**: hay un reporte que filtra por mes
-  pero devuelve totales, y tools que devuelven detalle pero sin filtrar. No hay forma
-  de pedir "el detalle de julio". Es parte de por qué el agente improvisó arriba.
-- **El agente pide tools de más**: para "cómo venimos este mes" llamó a
-  `listar_ingresos_efectuados`, `listar_egresos_efectuados` y recién después a
-  `resultado_mensual_por_moneda`, que ya respondía todo. Los números finales salieron
-  bien, pero se pagaron 3 consultas y 4 llamadas al LLM donde alcanzaba con 1 y 2.
-  Falta decirle en el prompt que si hay un reporte que responde el pedido, lo use en
-  vez de armarlo a mano.
+- **Las garantías del prompt son probabilísticas**: las reglas que evitan que el
+  agente afirme filtros que no aplicó viven en su prompt, no en el código. Funcionan
+  casi siempre, no siempre. Los montos sí están blindados (los calcula el código);
+  las etiquetas que los acompañan, no. Tenerlo presente antes de exponer el agente a
+  alguien que no sea del equipo.

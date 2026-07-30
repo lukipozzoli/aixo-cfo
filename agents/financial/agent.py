@@ -1,4 +1,5 @@
 import json
+from datetime import date
 
 from core.agents.base import Agent, AgentResult
 from core.intents import Intent
@@ -51,6 +52,10 @@ class FinancialAgent(Agent):
         history = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": (
+                # La fecha va explícita porque el LLM no tiene forma de saberla. Sin
+                # esto, ante un "este mes" adivinaría el período — y un mes adivinado
+                # devuelve datos de otro mes sin que nada avise.
+                f"Fecha de hoy: {date.today().isoformat()}\n"
                 f"Instrucción del orquestador: {instruction}\n"
                 f"Mensaje original del usuario: {message.text}"
             )},
