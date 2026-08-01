@@ -1,6 +1,6 @@
-# CLAUDE.md — Reglas de Ejecución
+# AGENTS.md — Reglas de Ejecución
 
-Este archivo define cómo trabajamos en este proyecto. Claude lo lee al inicio de cada sesión y lo respeta en todo momento.
+Este archivo define cómo trabajamos en este proyecto. Codex lo lee al inicio de cada sesión y lo respeta en todo momento.
 
 ---
 
@@ -75,7 +75,7 @@ Todo el código debe respetar los principios SOLID:
 ## Documentación Viva
 
 - `docs/context.md` — contexto completo del proyecto: arquitectura, agentes, eventos, tools y flujos. Se actualiza cada vez que algo cambia.
-- Este archivo (`CLAUDE.md`) — reglas de ejecución. Se actualiza si cambian las reglas de trabajo.
+- Este archivo (`AGENTS.md`) — reglas de ejecución. Se actualiza si cambian las reglas de trabajo.
 
 ### Reglas de actualización
 - Cada vez que se agrega, modifica o elimina una tabla, columna o relación en la base de datos, actualizar `docs/context.md`.
@@ -103,3 +103,7 @@ La arquitectura es multi-agente:
 - Un **Conversation Agent** y un **Report Agent** presentan la información al usuario.
 
 Todo está documentado en `docs/context.md`.
+
+## Imported Claude Cowork project instructions
+
+proyecto compartido con mi socio, la idea es armar un agente de ia financiero en conjunto

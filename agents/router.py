@@ -33,7 +33,7 @@ class Router:
     def __init__(self, llm: LLMProvider):
         self._llm = llm
 
-    def classify(self, message: IncomingMessage) -> Intent:
+    async def classify(self, message: IncomingMessage) -> Intent:
         # Construye el contenido del mensaje para el LLM.
         # Si hay archivos adjuntos, los menciona explícitamente para ayudar a clasificar.
         content_parts = []
@@ -47,7 +47,7 @@ class Router:
 
         user_content = "\n".join(content_parts).strip()
 
-        response = self._llm.chat([
+        response = await self._llm.chat([
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ])
