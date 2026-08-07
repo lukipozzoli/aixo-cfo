@@ -10,19 +10,24 @@ from agents.orchestrator import Orchestrator
 from agents.financial.agent import FinancialAgent
 from tools.reads.financial import FinancialReadTools
 from reports.financial import FinancialReports
-from db.client import get_client as get_db_client
-from messaging.client import get_client
-from config.aixo import (
+from core.db.factory import build_database_client
+from core.messaging.factory import build_messaging_provider
+from config import (
     ROUTER_PROVIDER, ROUTER_MODEL,
     ORCHESTRATOR_PROVIDER, ORCHESTRATOR_MODEL,
     FINANCIAL_AGENT_PROVIDER, FINANCIAL_AGENT_MODEL,
     TRANSCRIPTION_PROVIDER, TRANSCRIPTION_MODEL,
     VISION_PROVIDER, VISION_MODEL,
+    MESSAGING_PROVIDER, MESSAGING_CONFIG,
+    DATABASE_PROVIDER, DATABASE_CONFIG,
     get_llm_api_key,
 )
 
 # Inicializa el Preprocessor con los providers configurados en .env.
-_messaging = get_client()
+#
+# MESSAGING_CONFIG llega ya armado desde config/messaging.py con los datos que
+# necesita el proveedor elegido. El ** lo desarma en argumentos con nombre.
+_messaging = build_messaging_provider(MESSAGING_PROVIDER, **MESSAGING_CONFIG)
 _preprocessor = Preprocessor(
     messaging=_messaging,
     transcription=build_transcription_provider(
@@ -48,7 +53,11 @@ _router = Router(
 
 # Un único cliente de base de datos, compartido por las tools y los reportes:
 # los dos dependen de la misma abstracción, no hace falta una conexión por cada uno.
-_db = get_db_client()
+#
+# Se crea una sola vez acá y se reparte. Antes el factory guardaba la instancia
+# adentro para no duplicarla, pero era innecesario: este archivo se ejecuta una
+# vez al arrancar, así que basta con guardarla en una variable.
+_db = build_database_client(DATABASE_PROVIDER, **DATABASE_CONFIG)
 
 # Inicializa el Financial Agent: agente financiero, por ahora de solo lectura.
 # Recibe las tools de lectura y los reportes ya armados (inyección desde acá).

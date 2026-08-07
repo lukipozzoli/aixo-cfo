@@ -46,17 +46,21 @@ sin tocar la lógica central.
 
 ## Patrón de providers
 
-Todo componente con dependencia externa (LLM, base de datos, mensajería) sigue el mismo patrón:
+Todo componente con dependencia externa (LLM, base de datos, mensajería, visión, transcripción) sigue el mismo patrón, sin excepciones:
 
 1. `core/<tipo>/base.py` — clase abstracta que define la interfaz. El core y los agentes solo importan de acá.
 2. `providers/<tipo>/<nombre>.py` — implementación concreta para un proveedor específico.
-3. `<tipo>/client.py` o `core/<tipo>/factory.py` — factory que instancia el provider correcto según config.
-4. `config/aixo.py` — variable de entorno que selecciona el provider (ej: `DATABASE_PROVIDER=supabase`).
+3. `core/<tipo>/factory.py` — función que devuelve el provider correcto según su nombre. **Recibe la configuración por parámetro; no la lee.** Por eso puede vivir en `core/` y servir para cualquier empresa.
+4. `config/<tipo>.py` — declara qué variables de entorno se leen, y arma el diccionario de config del proveedor elegido.
+5. `main.py` — único lugar que conecta las dos cosas: le pasa al factory la config que corresponde.
+
+**La regla que ordena todo esto:** un factory nunca importa `config/`. Si lo hiciera, quedaría atado a la configuración de una empresa concreta y no podría vivir en `core/`.
 
 **Para agregar un nuevo provider:**
 1. Crear `providers/<tipo>/<nuevo_nombre>.py`
 2. Implementar la clase abstracta de `core/<tipo>/base.py`
-3. Registrar el nuevo provider en el factory correspondiente con su nombre como clave
+3. Registrarlo en `core/<tipo>/factory.py` con su nombre como clave
+4. Agregar su rama al `if` de `config/<tipo>.py`, para que solo se pidan sus variables cuando se lo elija
 
 Este patrón garantiza que cambiar de proveedor (de Supabase a Postgres, de Claude a GPT-4, de Telegram a iMessage) no requiere tocar ningún agente ni lógica de negocio.
 
@@ -73,25 +77,29 @@ Factory: `core/llm/factory.py` → `build_llm_provider(provider, model, api_key)
 | Google Gemini | `providers/llm/gemini.py` | `<AGENTE>_PROVIDER=gemini` |
 
 Cada agente tiene su propio provider y modelo configurados de forma independiente:
-`FINANCIAL_AGENT_PROVIDER`, `CONVERSATION_AGENT_PROVIDER`, `REPORT_AGENT_PROVIDER`, `ROUTER_PROVIDER`.
+`ROUTER_PROVIDER`, `ORCHESTRATOR_PROVIDER`, `FINANCIAL_AGENT_PROVIDER`.
+
+Los agentes que todavía no existen no tienen configuración. Se agrega cuando se escriben.
 
 #### Base de datos (`core/db/base.py` → `DatabaseClient`)
 Métodos: `select(table, filters)`, `insert(table, data)`, `update(table, data, filters)`, `delete(table, filters)`
-Factory: `db/client.py` → `get_client()`
+Factory: `core/db/factory.py` → `build_database_client(provider, **config)`
 
 | Provider | Archivo | Variable de selección |
 |----------|---------|----------------------|
 | Supabase | `providers/db/supabase.py` | `DATABASE_PROVIDER=supabase` |
 
 #### Mensajería (`core/messaging/base.py` → `MessagingProvider`)
-Métodos: `send(chat_id, text)`, `listen(handler)`
-Factory: `messaging/client.py` → `get_client()`
+Métodos: `send(chat_id, text)`, `listen(handler)`, `download(attachment)`
+Factory: `core/messaging/factory.py` → `build_messaging_provider(provider, **config)`
 
 | Provider | Archivo | Variable de selección |
 |----------|---------|----------------------|
-| Telegram (webhook) | `providers/messaging/telegram.py` | `MESSAGING_PROVIDER=telegram` |
+| Telegram | `providers/messaging/telegram.py` | `MESSAGING_PROVIDER=telegram` |
 
 *El modo de Telegram (webhook/polling) se configura con `MESSAGING_MODE`.*
+
+Las variables de Telegram se leen **solo** si `MESSAGING_PROVIDER=telegram`. El `if` que lo decide está en `config/messaging.py`. Con otro proveedor, el sistema arranca sin ninguna variable `TELEGRAM_*` definida.
 
 #### Scheduler (`core/scheduler/base.py` → `Scheduler`)
 Métodos: `register_job(job_id, func, cron_expr)`, `run()`
@@ -225,7 +233,7 @@ Luciano" y "de este mes":
 > positivos, moneda del movimiento = moneda de la cuenta, conciliación de previstos)
 > quedan en el historial de git para recuperar cuando se reimplemente la escritura.
 
-Config propia: `FINANCIAL_AGENT_PROVIDER` / `FINANCIAL_AGENT_MODEL` (`.env` + `config/aixo.py`).
+Config propia: `FINANCIAL_AGENT_PROVIDER` / `FINANCIAL_AGENT_MODEL` (`.env` + `config/agents.py`).
 
 ### Conversation Agent — A IMPLEMENTAR
 Presenta información al usuario en lenguaje natural. Maneja el ida y vuelta conversacional.

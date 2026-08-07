@@ -55,12 +55,17 @@ Completar las variables:
 | `ROUTER_PROVIDER` / `ROUTER_MODEL` | Clasificador de intents (ej: `openai` / `gpt-4o-mini`) |
 | `ORCHESTRATOR_PROVIDER` / `ORCHESTRATOR_MODEL` | Orquestador (ej: `openai` / `gpt-4o-mini`) |
 | `FINANCIAL_AGENT_PROVIDER` / `FINANCIAL_AGENT_MODEL` | Agente financiero (ej: `openai` / `gpt-4o-mini`) |
-| `CONVERSATION_AGENT_*` / `REPORT_AGENT_*` | Vacías por ahora (agentes aún no implementados) |
-| `MESSAGING_PROVIDER` / `MESSAGING_MODE` | `telegram` / `polling` |
-| `MESSAGING_PORT` | Puerto para modo webhook (con polling no se usa, pero debe tener valor) |
+| `MESSAGING_PROVIDER` | `telegram` |
+
+Las siguientes **solo hacen falta si `MESSAGING_PROVIDER=telegram`**. Con otro proveedor se pueden omitir por completo:
+
+| Variable | Qué es |
+|---|---|
 | `TELEGRAM_BOT_TOKEN` | Token que entrega @BotFather |
-| `TELEGRAM_CHAT_ID` | ID del chat autorizado |
+| `MESSAGING_MODE` | `polling` o `webhook` |
+| `MESSAGING_PORT` | Puerto del servidor; solo se usa en modo webhook |
 | `TELEGRAM_WEBHOOK_PATH` / `TELEGRAM_WEBHOOK_URL` | Solo para modo webhook |
+| `TELEGRAM_CHAT_ID` | Opcional. Destino de los mensajes que el agente manda solo (reportes, alertas). Todavía no lo usa nada |
 | `TRANSCRIPTION_PROVIDER` / `TRANSCRIPTION_MODEL` | Transcripción de audios (ej: `whisper` / `whisper-1`) |
 | `VISION_PROVIDER` / `VISION_MODEL` | Lectura de imágenes (ej: `claude` / `claude-haiku-4-5-20251001`) |
 
@@ -76,7 +81,7 @@ Completar las variables:
 
 1. Hablarle a [@BotFather](https://t.me/BotFather) → `/newbot` → seguir los pasos → copiar el token a `TELEGRAM_BOT_TOKEN`.
 2. Escribirle cualquier cosa al bot recién creado (para abrir el chat).
-3. Obtener el chat ID (por ejemplo visitando `https://api.telegram.org/bot<TOKEN>/getUpdates` después de escribirle) y ponerlo en `TELEGRAM_CHAT_ID`.
+3. *(Opcional)* Obtener el chat ID visitando `https://api.telegram.org/bot<TOKEN>/getUpdates` después de escribirle, y ponerlo en `TELEGRAM_CHAT_ID`. Todavía no lo usa nada: va a ser el destino de los reportes y alertas que el agente mande por su cuenta.
 
 ## Correr el agente
 
@@ -110,9 +115,13 @@ Los datos que consulta viven en Supabase → Table Editor → schema `finanzas` 
 
 ```
 ├── main.py               # Punto de entrada: arma el pipeline completo
-├── config/aixo.py        # Configuración de la empresa (lee el .env)
-├── core/                 # Abstracciones (interfaces): llm, db, messaging,
-│   │                     #   vision, transcription, scheduler, agents
+├── config/               # Qué variables se leen del .env, separadas por tema
+│   ├── agents.py         #   API keys + proveedor y modelo de cada agente
+│   ├── database.py       #   Base de datos
+│   ├── media.py          #   Transcripción y visión
+│   └── messaging.py      #   Canal de mensajería
+├── core/                 # Abstracciones (interfaces) y factories: llm, db,
+│   │                     #   messaging, vision, transcription, scheduler, agents
 │   └── agents/base.py    # Contrato Agent + AgentResult que cumple todo sub-agente
 ├── providers/            # Implementaciones concretas (Claude, OpenAI, Gemini,
 │                         #   Supabase, Telegram, Whisper)
@@ -125,5 +134,7 @@ Los datos que consulta viven en Supabase → Table Editor → schema `finanzas` 
 ├── db/migrations/        # DDL versionado de la base de datos
 └── docs/context.md       # Documentación viva: arquitectura, tablas, decisiones
 ```
+
+Los archivos de `config/` no contienen ningún dato de la empresa: solo declaran qué variables se leen del entorno. Los valores reales viven en el `.env`, que no está versionado. Por eso el mismo `config/` sirve para cualquier empresa.
 
 **Regla de oro del proyecto:** el core nunca importa SDKs ni conoce empresas concretas. Cambiar de proveedor (LLM, base, mensajería) es cambiar una variable del `.env`.

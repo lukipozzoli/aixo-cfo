@@ -1,6 +1,6 @@
 # AGENTS.md — Reglas de Ejecución
 
-Este archivo define cómo trabajamos en este proyecto. Codex lo lee al inicio de cada sesión y lo respeta en todo momento.
+Este archivo define cómo trabajamos en este proyecto. Es la **única fuente** de las reglas: lo leen Codex, Claude Code (vía el `@AGENTS.md` de `CLAUDE.md`) y cualquier otra herramienta. Se respeta en todo momento.
 
 ---
 
@@ -75,7 +75,7 @@ Todo el código debe respetar los principios SOLID:
 ## Documentación Viva
 
 - `docs/context.md` — contexto completo del proyecto: arquitectura, agentes, eventos, tools y flujos. Se actualiza cada vez que algo cambia.
-- Este archivo (`AGENTS.md`) — reglas de ejecución. Se actualiza si cambian las reglas de trabajo.
+- Este archivo (`AGENTS.md`) — reglas de ejecución. Se actualiza si cambian las reglas de trabajo. `CLAUDE.md` es solo un puntero a este archivo: no escribir reglas ahí.
 
 ### Reglas de actualización
 - Cada vez que se agrega, modifica o elimina una tabla, columna o relación en la base de datos, actualizar `docs/context.md`.
