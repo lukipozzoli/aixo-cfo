@@ -117,5 +117,5 @@ class Orchestrator:
         status = "OK" if result.success else "FALLÓ"
         text = f"[Resultado de {agent_name}] ({status}): {result.text}"
         if result.data:
-            text += f"\nDatos: {json.dumps(result.data, ensure_ascii=False)}"
+            text += f"\nDatos: {json.dumps(result.data, ensure_ascii=False, default=str)}"
         return text

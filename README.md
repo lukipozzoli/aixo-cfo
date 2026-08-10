@@ -106,6 +106,19 @@ También acepta **audios** (los transcribe) e **imágenes** (las lee con visión
 
 Los datos que consulta viven en Supabase → Table Editor → schema `finanzas` (verificable también desde el SQL Editor).
 
+## Correr los tests
+
+```bash
+source venv/bin/activate
+python3 -m pytest tests/ -q
+```
+
+El `-m` hace que Python incluya la carpeta actual, para que los tests encuentren
+`agents/`, `core/` y el resto. Sin eso fallan al importar.
+
+La cobertura es mínima a propósito: los tests se van sumando cuando aparece un bug
+que solo un test puede atrapar, no para cubrir porcentaje.
+
 ## Estructura del proyecto
 
 ```
@@ -122,6 +135,7 @@ Los datos que consulta viven en Supabase → Table Editor → schema `finanzas` 
 │   └── financial/        # Financial Agent (agent.py + prompt.py) — solo lectura
 ├── tools/reads/          # Tools de lectura, reutilizables e inyectadas
 ├── reports/              # Reportes: cálculo determinista sobre los datos
+├── tests/                # Tests automáticos (pytest)
 ├── db/migrations/        # DDL versionado de la base de datos
 └── docs/context.md       # Documentación viva: arquitectura, tablas, decisiones
 ```
