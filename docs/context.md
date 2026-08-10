@@ -66,6 +66,17 @@ Este patrón garantiza que cambiar de proveedor (de Supabase a Postgres, de Clau
 Métodos: `async chat(messages)`, `async complete(prompt)`
 Factory: `core/llm/factory.py` → `build_llm_provider(provider, model, api_key)`
 
+Errores: `core/llm/base.py` define además `LLMError`. Cada adapter envuelve las
+excepciones de su SDK ahí, con `raise LLMError(...) from e` — el `from e` encadena
+la original para no perder el diagnóstico. Sin esa traducción, atrapar una falla de
+LLM afuera de `providers/` obligaría a nombrar `anthropic.APIError`,
+`openai.APIError` y la de Gemini, o sea a importar los tres SDK y saber cuál está
+configurado. Se envuelve solo la llamada al SDK y la lectura de su respuesta, no el
+código propio del adapter: un bug nuestro tiene que verse como tal.
+
+Hoy nadie atrapa `LLMError` en particular — el `except Exception` de `main.py` ya lo
+cubre. El tipo existe para que se pueda, no porque haga falta todavía.
+
 | Provider | Archivo | Variable de selección |
 |----------|---------|----------------------|
 | Anthropic Claude | `providers/llm/claude.py` | `<AGENTE>_PROVIDER=claude` |

@@ -1,5 +1,5 @@
 import anthropic
-from core.llm.base import LLMProvider
+from core.llm.base import LLMProvider, LLMError
 
 
 class ClaudeProvider(LLMProvider):
@@ -31,8 +31,14 @@ class ClaudeProvider(LLMProvider):
         if system:
             params["system"] = system
 
-        response = await self._client.messages.create(**params)
-        return response.content[0].text
+        # Se envuelve sólo la llamada al SDK y la lectura de su respuesta. El
+        # armado de params de arriba es código nuestro: si falla ahí es un bug
+        # nuestro, y tiene que verse como tal en vez de disfrazarse de LLMError.
+        try:
+            response = await self._client.messages.create(**params)
+            return response.content[0].text
+        except Exception as e:
+            raise LLMError(f"Falló la llamada a Anthropic: {e}") from e
 
     async def complete(self, prompt: str, **kwargs) -> str:
         # Envuelve el prompt como un mensaje de usuario para reutilizar chat().

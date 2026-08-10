@@ -43,6 +43,7 @@ Todo el código debe respetar los principios SOLID:
 - Existe una interfaz abstracta `LLMProvider` con métodos `async chat()` y `async complete()`.
 - Las implementaciones concretas (`ClaudeProvider`, `OpenAIProvider`, etc.) se configuran por empresa.
 - El core nunca importa directamente ningún SDK de LLM.
+- Cada implementación envuelve las excepciones de su SDK en `LLMError` (definido en `core/llm/base.py`). Sin eso, atrapar una falla de LLM afuera de `providers/` obligaría a nombrar las excepciones de cada SDK — o sea, importarlos.
 
 ### Independencia del scheduler
 - Los cron jobs no dependen de ninguna tecnología específica de scheduling.

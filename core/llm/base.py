@@ -2,6 +2,20 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 
+class LLMError(Exception):
+    # Error de cualquier proveedor de LLM. Cada adapter envuelve acá las
+    # excepciones de su SDK.
+    #
+    # Existe para que el core pueda atrapar una falla de LLM sin importar el SDK
+    # del proveedor: sin esto, un `except` afuera de providers/ tendría que
+    # nombrar anthropic.APIError, openai.APIError y la de Gemini — o sea importar
+    # los tres SDK y saber cuál está configurado. Eso rompe la independencia de
+    # proveedor
+    # Los adapters envuelven con `raise LLMError(...) from e`: el `from e`
+    # encadena la excepción original, así el traceback sigue mostrando qué falló
+    # de verdad y queda accesible en __cause__.
+    pass
+
 class LLMProvider(ABC):
     # Interfaz genérica para cualquier proveedor de LLM.
     # El core nunca importa un SDK directamente — siempre pasa por acá.
