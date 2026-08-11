@@ -63,6 +63,7 @@ Completar las variables:
 | `TELEGRAM_WEBHOOK_PATH` / `TELEGRAM_WEBHOOK_URL` | Solo para modo webhook |
 | `TRANSCRIPTION_PROVIDER` / `TRANSCRIPTION_MODEL` | Transcripción de audios (ej: `whisper` / `whisper-1`) |
 | `VISION_PROVIDER` / `VISION_MODEL` | Lectura de imágenes (ej: `claude` / `claude-haiku-4-5-20251001`) |
+| `LOG_LEVEL` | Detalle de los logs: `DEBUG`, `INFO`, `WARNING`, `ERROR`. Opcional, default `INFO`. **`DEBUG` vuelca montos y respuestas del LLM completas — no usar en producción.** |
 
 ### 3. Crear la base de datos en Supabase
 

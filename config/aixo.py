@@ -48,6 +48,13 @@ TELEGRAM_WEBHOOK_PATH: str = os.environ["TELEGRAM_WEBHOOK_PATH"]
 TRANSCRIPTION_PROVIDER: str = os.environ["TRANSCRIPTION_PROVIDER"]
 TRANSCRIPTION_MODEL: str = os.environ["TRANSCRIPTION_MODEL"]
 
+# Nivel de detalle del logging: DEBUG, INFO, WARNING, ERROR.
+# Va con default y no con os.environ[...] a diferencia del resto: si falta, el
+# sistema arranca igual, solo con menos detalle. No es una credencial sin la cual
+# nada funciona. En producción conviene INFO — DEBUG vuelca montos y respuestas
+# del LLM completas.
+LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+
 # Visión — análisis de imágenes y documentos visuales
 VISION_PROVIDER: str = os.environ["VISION_PROVIDER"]
 VISION_MODEL: str = os.environ["VISION_MODEL"]

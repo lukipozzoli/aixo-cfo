@@ -1,9 +1,13 @@
 import json
+import logging
 
 from core.llm.base import LLMProvider
 from core.messaging.base import IncomingMessage
 from core.intents import Intent
 from core.agents.base import Agent, AgentResult
+
+# El módulo pide su logger; a dónde va la salida lo decide main.py.
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT_TEMPLATE = """Sos el Orquestador de un sistema de gestión financiera para una empresa.
@@ -56,7 +60,7 @@ class Orchestrator:
         for _ in range(self._max_iterations):
             response = await self._llm.chat(history)
             decision = self._parse_decision(response)
-            print(f"[DEBUG] Decisión del LLM: {decision}")
+            logger.debug("Decisión del LLM: %s", decision)
 
             # Si el LLM devolvió algo no parseable, se corta acá con un
             # mensaje honesto en vez de arriesgar un comportamiento indefinido.
@@ -81,7 +85,7 @@ class Orchestrator:
                         instruction=decision.get("instruction", ""),
                     )
                     result_text = self._format_result(agent_name, result)
-                    print(f"[DEBUG] Resultado del agente: {result_text}")
+                    logger.debug("Resultado del agente: %s", result_text)
 
                 # La decisión del LLM y el resultado del agente se agregan al
                 # historial para que el próximo turno decida con esa información.

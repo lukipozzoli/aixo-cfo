@@ -133,6 +133,42 @@ escribir una línea.
 
 ---
 
+## Logging
+
+Nada escribe a `stdout` directamente. Cada módulo pide su logger con
+`logging.getLogger(__name__)` y solo emite; **a dónde va esa salida y con cuánto
+detalle lo decide `main.py`**, una sola vez, con el nivel leído de `LOG_LEVEL`.
+
+Es la misma separación que la concurrencia: el módulo sabe *qué* informar, la
+aplicación decide *qué se hace* con eso. Un agente no tiene por qué saber si su
+diagnóstico va a una terminal, a un archivo o a un agregador de logs.
+
+**Qué va en cada nivel** — esta es la regla que hace que el esquema sirva:
+
+| Nivel | Qué lleva |
+|---|---|
+| `DEBUG` | El detalle completo: decisiones del LLM, filas devueltas por las tools, montos. |
+| `INFO` | Que algo pasó, sin el contenido. Ej: el arranque del bot. |
+| `ERROR` | Fallas, con su traceback (`logger.exception` lo agrega solo). |
+
+**Ningún dato financiero puede aparecer en `INFO` o por encima.** Con
+`LOG_LEVEL=INFO` un deploy no filtra montos ni respuestas del LLM a sus logs; con
+`DEBUG` sale todo, y por eso `DEBUG` es solo para desarrollo local.
+
+Dos detalles de implementación:
+
+- Los mensajes se arman con `logger.debug("... %s", valor)` y no con f-strings. Con
+  f-string el texto se construye siempre, aunque el nivel esté apagado y el mensaje
+  se descarte.
+- **`LOG_LEVEL` se aplica solo a los módulos del proyecto**, con una lista blanca en
+  `main.py`; el resto del mundo queda en `WARNING`. Se hizo así después de fallar
+  con el enfoque inverso: se listaron las librerías ruidosas conocidas (`httpx`,
+  `httpcore`, `asyncio`, los SDK) y se escapó `hpack`, que en `DEBUG` imprime cada
+  header HTTP/2 — **incluida la apikey de Supabase en texto plano**. Una lista de
+  librerías a silenciar nunca está completa; una lista de módulos propios sí.
+
+---
+
 ## Agentes
 
 ### Contrato común (`core/agents/base.py`) — IMPLEMENTADO
@@ -675,8 +711,10 @@ Detectados durante la construcción; ninguno es bloqueante hoy:
   `finanzas` hardcodeado; generalizar cuando ARCA necesite el schema `facturacion`.
 - **Feedback de formato en el orquestador**: el loop del financial avisa al LLM
   cuando responde con formato inválido; el del orquestador todavía no (mismo fix pendiente).
-- **Prints de `[DEBUG]`**: quedan en el orquestador y en el Financial Agent mientras
-  dure el desarrollo activo; sacarlos al pasar a servidor.
+- **`LOG_LEVEL` en el servidor**: los `print` de debug ya son `logger.debug`, así que
+  no hay nada que sacar del código — pero el deploy tiene que arrancar con
+  `LOG_LEVEL=INFO`. Con `DEBUG` los montos y las respuestas del LLM van enteros a
+  los logs.
 - **Confirmación previa a escrituras**: evaluar que operaciones que escriben pidan
   confirmación por Telegram antes de ejecutar (requiere memoria conversacional).
 - **El orden de los mensajes ya no está garantizado**: desde que `main.py` despacha
@@ -694,6 +732,15 @@ Detectados durante la construcción; ninguno es bloqueante hoy:
   cliente sync de supabase-py, así que cada `select` bloquea el event loop. Es el
   mismo problema que se arregló en `LLMProvider`, pero mucho menos grave: una query
   tarda decenas de milisegundos contra los segundos de un LLM. Migrar cuando moleste.
+- **El orquestador reescribe respuestas que ya estaban bien**: cuando llama a un
+  solo agente y ese agente contesta correctamente, el orquestador igual gasta una
+  llamada al LLM para redactar de nuevo lo mismo (visto en pruebas: dos segundos y
+  un texto idéntico al del agente). La salida es lo caro y lo lento — el modelo la
+  genera token por token. **Que la decisión la tome el código, no el LLM**: si se
+  llamó a un solo agente y devolvió `success=True`, pasar su texto tal cual sin
+  consultar al modelo. Preguntarle al LLM "¿esta respuesta está bien?" cambiaría un
+  ahorro chico por un riesgo de calidad. Contra: se pierden los casos donde el
+  orquestador querría agregar contexto — hoy no aplica porque hay un solo agente.
 - **Las garantías del prompt son probabilísticas**: las reglas que evitan que el
   agente afirme filtros que no aplicó viven en su prompt, no en el código. Funcionan
   casi siempre, no siempre. Los montos sí están blindados (los calcula el código);

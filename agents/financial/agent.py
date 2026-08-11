@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import date
 
 from core.agents.base import Agent, AgentResult
@@ -8,6 +9,9 @@ from core.messaging.base import IncomingMessage
 from tools.reads.financial import FinancialReadTools
 from reports.financial import FinancialReports
 from agents.financial.prompt import SYSTEM_PROMPT
+
+# El módulo pide su logger; a dónde va la salida lo decide main.py.
+logger = logging.getLogger(__name__)
 
 
 class FinancialAgent(Agent):
@@ -66,18 +70,18 @@ class FinancialAgent(Agent):
         for _ in range(self._max_iterations):
             response = await self._llm.chat(history)
             decision = self._parse(response)
-            print(f"[DEBUG] financial decidió: {decision}")
+            logger.debug("financial decidió: %s", decision)
 
             if decision is None:
                 return AgentResult(text="No pude interpretar la instrucción recibida.", success=False)
 
             if decision.get("action") == "respond":
-                print(f"[DEBUG] financial respondió: {decision.get('text', '')}")
+                logger.debug("financial respondió: %s", decision.get("text", ""))
                 return AgentResult(text=decision.get("text", ""))
 
             elif decision.get("action") == "read":
                 result_text = self._read(decision)
-                print(f"[DEBUG] financial leyó: {result_text[:400]}")
+                logger.debug("financial leyó: %s", result_text)
                 history.append({"role": "assistant", "content": response})
                 history.append({"role": "user", "content": result_text})
 
