@@ -51,6 +51,7 @@ Completar las variables:
 | `DATABASE_PROVIDER` | `supabase` |
 | `DATABASE_URL` | URL del proyecto Supabase (Settings → Data API) |
 | `DATABASE_KEY` | **Secret key** del proyecto (Settings → API Keys → Secret keys). Nunca la publishable. |
+| `DATABASE_SCHEMA` | Schema de Postgres donde viven las tablas del agente (`finanzas`). Tiene que coincidir con el nombre que crea la migración — ver abajo. |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | Solo las de los providers que uses |
 | `ROUTER_PROVIDER` / `ROUTER_MODEL` | Clasificador de intents (ej: `openai` / `gpt-4o-mini`) |
 | `ORCHESTRATOR_PROVIDER` / `ORCHESTRATOR_MODEL` | Orquestador (ej: `openai` / `gpt-4o-mini`) |
@@ -72,6 +73,13 @@ Completar las variables:
 3. Exponer el schema a la API: **Settings → Data API → Exposed schemas** → agregar `finanzas` → Save.
 
 > Los permisos del schema para el rol de backend (`service_role`) están incluidos al final de la migración. Sin ellos la API devuelve `permission denied for schema finanzas`.
+
+> **El nombre del schema lo fija la migración.** `001_finanzas.sql` escribe `finanzas`
+> en el `create schema`, en cada tabla y en los `grant` del final. El código no lo
+> conoce: lo lee de `DATABASE_SCHEMA`. Si querés otro nombre, cambialo en los dos
+> lados — no alcanza con el `.env`. No se parametrizó el SQL porque el flujo de uso
+> es copiar y pegar el archivo en el editor de Supabase, y meterle un paso de
+> plantilla en el medio lo rompería.
 
 ### 4. Crear el bot de Telegram
 

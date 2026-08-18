@@ -10,6 +10,10 @@ load_dotenv()
 DATABASE_PROVIDER: str = os.environ["DATABASE_PROVIDER"]
 DATABASE_URL: str = os.environ["DATABASE_URL"]
 DATABASE_KEY: str = os.environ["DATABASE_KEY"]
+# Schema de Postgres donde viven las tablas del agente. Es obligatorio: sin él el
+# cliente no sabe dónde buscar, y ponerle un default sería volver a hardcodearlo
+# —solo que en otro archivo.
+DATABASE_SCHEMA: str = os.environ["DATABASE_SCHEMA"]
 
 # API keys de LLM — solo se requiere la del provider que use cada agente.
 ANTHROPIC_API_KEY: str | None = os.getenv("ANTHROPIC_API_KEY")

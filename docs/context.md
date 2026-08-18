@@ -83,6 +83,29 @@ Factory: `db/client.py` → `get_client()`
 |----------|---------|----------------------|
 | Supabase | `providers/db/supabase.py` | `DATABASE_PROVIDER=supabase` |
 
+El schema de Postgres llega por constructor junto con la URL y la key, desde
+`DATABASE_SCHEMA`. `SupabaseClient` lo ata una sola vez —`create_client(...).schema(x)`
+devuelve un cliente ya apuntado a ese espacio de tablas— y los cuatro métodos no
+vuelven a nombrarlo.
+
+Va en el constructor y no en la interfaz `DatabaseClient` a propósito: "schema" es un
+concepto de Postgres, y si mañana el provider fuera Mongo o SQLite ese parámetro no
+significaría nada. La abstracción queda genérica; el detalle vive en el adaptador que
+sí sabe con qué habla.
+
+Una instancia representa **el acceso a un conjunto de tablas**: quien la recibe pide
+una tabla por nombre y no sabe en qué schema vive. Para hablarle a otro schema se
+construye otro cliente. Hoy `get_client()` devuelve uno solo, así que el sistema usa
+un único schema por corrida; cuando ARCA necesite `facturacion` en paralelo, el
+cambio es que el factory reciba el schema y guarde uno por cada uno — confinado a
+`db/client.py`.
+
+**El nombre lo fija la migración, no el `.env`.** `001_finanzas.sql` escribe `finanzas`
+en el `create schema`, en cada tabla y en los `grant`. `DATABASE_SCHEMA` tiene que
+coincidir; cambiar de nombre es editar los dos lados. No se parametrizó el SQL porque
+el flujo de instalación es pegar el archivo en el editor de Supabase y un paso de
+plantilla lo rompería.
+
 #### Mensajería (`core/messaging/base.py` → `MessagingProvider`)
 Métodos: `send(chat_id, text)`, `listen(handler)`
 Factory: `messaging/client.py` → `get_client()`
@@ -707,8 +730,12 @@ Detectados durante la construcción; ninguno es bloqueante hoy:
   cargado dos veces). ARCA ya lo prevé con `idempotency_key`; para el agente de
   escritura futuro falta detectar duplicados sospechosos y preguntar.
 - **`edited_at` no se actualiza solo**: falta trigger en la base o seteo desde el código.
-- **Provider de Supabase con schema fijo**: `providers/db/supabase.py` tiene
-  `finanzas` hardcodeado; generalizar cuando ARCA necesite el schema `facturacion`.
+- **Un solo schema por corrida**: el schema ya no está hardcodeado —viaja desde
+  `DATABASE_SCHEMA`— pero `get_client()` cachea un único cliente, así que el sistema
+  habla con un solo schema a la vez. Nada puede leer `public` (los `cliente`,
+  `proyecto` y `usuario` de Luciano) mientras usa `finanzas`. Cuando ARCA necesite
+  `facturacion` en paralelo, hay que hacer que el factory reciba el schema y guarde
+  uno por cada uno. El cambio queda contenido en `db/client.py`.
 - **Feedback de formato en el orquestador**: el loop del financial avisa al LLM
   cuando responde con formato inválido; el del orquestador todavía no (mismo fix pendiente).
 - **`LOG_LEVEL` en el servidor**: los `print` de debug ya son `logger.debug`, así que

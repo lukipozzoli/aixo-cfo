@@ -1,4 +1,12 @@
 -- 001_finanzas.sql — Schema finanzas: tablas base del agente CFO.
+--
+-- ESTE ARCHIVO FIJA EL NOMBRE DEL SCHEMA. El código no lo conoce: lo lee de la
+-- variable DATABASE_SCHEMA del .env. Los dos tienen que coincidir. Si querés otro
+-- nombre, cambialo acá (create schema, cada tabla, los references y los grant del
+-- final) y también en DATABASE_SCHEMA. No se parametrizó porque la instalación es
+-- pegar este archivo en el SQL Editor de Supabase, y un paso de plantilla en el
+-- medio rompería ese flujo.
+--
 -- Pendiente: FKs hacia public (proyecto, costo_fijo, costo_variable)
 -- se agregarán cuando esas tablas existan. Las columnas ya quedan creadas.
 
