@@ -135,7 +135,8 @@ que solo un test puede atrapar, no para cubrir porcentaje.
 ├── config/aixo.py        # Configuración de la empresa (lee el .env)
 ├── core/                 # Abstracciones (interfaces): llm, db, messaging,
 │   │                     #   vision, transcription, scheduler, agents
-│   └── agents/base.py    # Contrato Agent + AgentResult que cumple todo sub-agente
+│   ├── agents/base.py    # Contrato Agent + AgentResult que cumple todo sub-agente
+│   └── agents/loop.py    # AgentLoop: el loop agéntico que comparten orquestador y agentes
 ├── providers/            # Implementaciones concretas (Claude, OpenAI, Gemini,
 │                         #   Supabase, Telegram, Whisper)
 ├── agents/

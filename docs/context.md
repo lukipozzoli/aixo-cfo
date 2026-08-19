@@ -207,6 +207,38 @@ Convención de organización: **agente simple = archivo, agente complejo = carpe
 con `agent.py` (la clase), `prompt.py` (su system prompt) y `operations.py`
 (operaciones validadas). Cada carpeta es autocontenida y extraíble como skill.
 
+### Loop agéntico (`core/agents/loop.py`) — IMPLEMENTADO
+
+El Orquestador y el Financial Agent comparten la misma mecánica: preguntarle al LLM
+qué hacer, ejecutarlo, mostrarle el resultado, y repetir hasta que responda o se
+agoten las vueltas. Esa mecánica vive en `AgentLoop`, una sola vez.
+
+Encapsula: el loop acotado por `max_iterations`, el parseo de la decisión (incluida la
+limpieza del envoltorio markdown que a veces mete el LLM), la alimentación del
+historial, y el corte por iteraciones.
+
+**No conoce agentes ni tools.** Recibe un catálogo `dict[str, Accion]` desde afuera
+(principio D de SOLID). Lo único que sabe del protocolo es que `respond` termina — que
+no es una acción de dominio sino su forma de cortar. La diferencia entre los dos que lo
+usan queda reducida a qué acciones entienden: el orquestador registra `call_agent`, el
+financial registra `read`.
+
+Devuelve un `LoopOutcome` (`text` + `success`) y no un `AgentResult` ni un `str`: el
+loop no sabe quién lo llama, así que entrega lo mínimo y cada uno lo envuelve como le
+corresponde (principio I). Los tres mensajes de salida —parseo fallido, iteraciones
+agotadas, y el aviso de formato inválido que va al LLM— se inyectan con `LoopMessages`,
+porque el orquestador le habla al usuario final y un sub-agente le habla al orquestador.
+
+Se arma **por llamada**, no en el constructor del agente: el catálogo del orquestador
+necesita el mensaje y el intent de esa corrida, y `main.py` procesa mensajes en
+paralelo. Guardarlos en `self` mezclaría dos conversaciones.
+
+Al unificar se arreglaron dos cosas que estaban desparejas entre los dos loops: el
+orquestador no le avisaba al LLM cuando elegía una acción inexistente (le mandaba el
+mismo prompt las 5 vueltas, sin forma de corregirse), y un JSON válido que no fuera un
+objeto —`["read"]`, `42`— pasaba el parseo y reventaba después con `AttributeError`.
+Los dos quedaron cubiertos en `tests/test_agent_loop.py`.
+
 ### Router (`agents/router.py`) — IMPLEMENTADO
 Clasifica cada mensaje en un intent (enum `core/intents.py`) usando un LLM.
 Valida la respuesta contra el enum; si no matchea, cae en `desconocido`.
@@ -217,11 +249,13 @@ El "agente principal". Recibe el mensaje ya clasificado y decide cómo resolverl
 a qué sub-agente llamar, con qué instrucción, y si encadenar varios. Reemplazó al
 `match intent:` provisorio de `main.py`.
 
-Funcionamiento: loop agéntico con historial. En cada vuelta su LLM responde JSON:
+Funcionamiento: usa el `AgentLoop` de `core/agents/loop.py` (ver arriba), registrando
+una sola acción: `call_agent`. Su LLM responde JSON:
 `{"action": "call_agent", "agent": ..., "instruction": ...}` o
-`{"action": "respond", "text": ...}`. Defensas: JSON validado (formato inválido
-corta con mensaje honesto), agente inexistente informado al LLM para que corrija,
-y límite de iteraciones (default 5) contra loops infinitos.
+`{"action": "respond", "text": ...}`. Las defensas —JSON validado, límite de
+iteraciones (default 5) contra loops infinitos, y el aviso al LLM cuando el formato es
+inválido— viven en el loop. Lo propio del orquestador es informarle al LLM cuando el
+agente que pidió no existe.
 
 Recibe los sub-agentes inyectados por constructor (lista en `main.py`). Agregar
 un agente nuevo no requiere tocar el orquestador (principio O de SOLID).
@@ -230,7 +264,8 @@ un agente nuevo no requiere tocar el orquestador (principio O de SOLID).
 Sub-agente financiero, por ahora de **solo lectura**. Cumple el contrato `Agent`,
 así que el orquestador lo llama igual que a cualquier otro sub-agente. Su LLM elige
 una tool de una **lista blanca**, el código la ejecuta (solo `db.select`) y el LLM
-narra el resultado. Protocolo JSON con `{"action": "read", ...}` /
+narra el resultado. Usa el mismo `AgentLoop` que el orquestador (ver arriba),
+registrando la acción `read`. Protocolo JSON con `{"action": "read", ...}` /
 `{"action": "respond", ...}`. No tiene ninguna tool que escriba, así que no puede
 mutar la base.
 
@@ -736,8 +771,6 @@ Detectados durante la construcción; ninguno es bloqueante hoy:
   `proyecto` y `usuario` de Luciano) mientras usa `finanzas`. Cuando ARCA necesite
   `facturacion` en paralelo, hay que hacer que el factory reciba el schema y guarde
   uno por cada uno. El cambio queda contenido en `db/client.py`.
-- **Feedback de formato en el orquestador**: el loop del financial avisa al LLM
-  cuando responde con formato inválido; el del orquestador todavía no (mismo fix pendiente).
 - **`LOG_LEVEL` en el servidor**: los `print` de debug ya son `logger.debug`, así que
   no hay nada que sacar del código — pero el deploy tiene que arrancar con
   `LOG_LEVEL=INFO`. Con `DEBUG` los montos y las respuestas del LLM van enteros a
