@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+from core.tools.base import Tool
 
 from core.db.base import DatabaseClient
 
@@ -101,3 +102,18 @@ class FinancialReports:
         # 3000.30. Acá no redondea nada: una suma de valores de 2 decimales ya
         # tiene 2 decimales. Solo empareja la escala.
         return total.quantize(ESCALA_MONTO)
+
+    def catalogo(self) -> list[Tool]:
+        # Un reporte se describe igual que una tool: para el LLM los dos son "algo
+        # que puedo pedir". La diferencia —datos crudos contra números calculados—
+        # importa acá adentro, no del lado del agente.
+        return [
+            Tool(
+                "resultado_mensual_por_moneda", "mes?",
+                "Calcula el resultado de un mes: ingresos efectuados menos egresos efectuados, "
+                "separado por moneda. 'mes' es opcional, formato \"AAAA-MM\" (ej: \"2026-07\"); "
+                "sin argumento usa el mes actual. Los números vienen calculados por código: "
+                "usalos tal cual, no rehagas las cuentas.",
+                self.resultado_mensual_por_moneda,
+            ),
+        ]

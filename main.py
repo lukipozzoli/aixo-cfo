@@ -71,16 +71,20 @@ _router = Router(
 # los dos dependen de la misma abstracción, no hace falta una conexión por cada uno.
 _db = get_db_client()
 
+# Las tools de lectura y los reportes se arman acá y entregan cada uno su catálogo.
+# El agente recibe una sola lista de Tool: qué puede tocar cada agente es una
+# decisión de la aplicación, y por eso se ve en el composition root.
+_lecturas = FinancialReadTools(db=_db)
+_reportes = FinancialReports(db=_db)
+
 # Inicializa el Financial Agent: agente financiero, por ahora de solo lectura.
-# Recibe las tools de lectura y los reportes ya armados (inyección desde acá).
 _financial = FinancialAgent(
     llm=build_llm_provider(
         provider=FINANCIAL_AGENT_PROVIDER,
         model=FINANCIAL_AGENT_MODEL,
         api_key=get_llm_api_key(FINANCIAL_AGENT_PROVIDER),
     ),
-    tools=FinancialReadTools(db=_db),
-    reports=FinancialReports(db=_db),
+    tools=_lecturas.catalogo() + _reportes.catalogo(),
 )
 
 # Inicializa el Orquestador con su LLM y los sub-agentes registrados.

@@ -136,7 +136,8 @@ que solo un test puede atrapar, no para cubrir porcentaje.
 ├── core/                 # Abstracciones (interfaces): llm, db, messaging,
 │   │                     #   vision, transcription, scheduler, agents
 │   ├── agents/base.py    # Contrato Agent + AgentResult que cumple todo sub-agente
-│   └── agents/loop.py    # AgentLoop: el loop agéntico que comparten orquestador y agentes
+│   ├── agents/loop.py    # AgentLoop: el loop agéntico que comparten orquestador y agentes
+│   └── tools/base.py     # Contrato Tool: nombre, argumentos, descripción y ejecución
 ├── providers/            # Implementaciones concretas (Claude, OpenAI, Gemini,
 │                         #   Supabase, Telegram, Whisper)
 ├── agents/

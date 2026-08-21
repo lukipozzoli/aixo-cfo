@@ -1,4 +1,5 @@
 from core.db.base import DatabaseClient
+from core.tools.base import Tool
 
 # Tools de LECTURA del dominio financiero.
 # Regla del archivo: nada acá adentro escribe. Cada método llama únicamente
@@ -76,4 +77,43 @@ class FinancialReadTools:
             {**{k: v for k, v in f.items() if k != "id_cuenta"},
              "cuenta": cuentas.get(f.get("id_cuenta"), f.get("id_cuenta"))}
             for f in filas
+        ]
+ 
+    def catalogo(self) -> list[Tool]:
+        # Las tools se describen a sí mismas. La descripción vive acá y no en el
+        # composition root porque quien tiene el método es quien sabe qué hace: si
+        # el texto está lejos del código, se desincroniza sin que nada falle.
+        return [
+            Tool(
+                "buscar_cuentas", "nombre?",
+                "Lee las cuentas con su saldo, tipo y moneda. 'nombre' es opcional: si lo pasás, "
+                "filtra esa cuenta; si no, devuelve todas.",
+                self.buscar_cuentas,
+            ),
+            Tool(
+                "listar_ingresos_previstos", "estado?",
+                "Lee los ingresos previstos (plata por cobrar). 'estado' es opcional, por defecto "
+                "'pendiente' (los cobros a recibir). Otros valores posibles: 'confirmado', 'cancelado'.",
+                self.listar_ingresos_previstos,
+            ),
+            Tool(
+                "listar_egresos_previstos", "estado?",
+                "Lee los egresos previstos (plata por pagar). 'estado' es opcional, por defecto "
+                "'pendiente' (los pagos a hacer). Otros valores: 'confirmado', 'cancelado'.",
+                self.listar_egresos_previstos,
+            ),
+            Tool(
+                "listar_ingresos_efectuados", "mes?",
+                "Lee los ingresos efectuados (plata que realmente entró, cobros concretados). "
+                "'mes' es opcional, formato \"AAAA-MM\" (ej: \"2026-07\"). SIN 'mes' devuelve todos "
+                "los de la historia, no los del mes actual.",
+                self.listar_ingresos_efectuados,
+            ),
+            Tool(
+                "listar_egresos_efectuados", "mes?",
+                "Lee los egresos efectuados (plata que realmente salió, pagos concretados). "
+                "'mes' es opcional, formato \"AAAA-MM\". SIN 'mes' devuelve todos los de la "
+                "historia, no los del mes actual.",
+                self.listar_egresos_efectuados,
+            ),
         ]

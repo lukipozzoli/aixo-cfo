@@ -269,8 +269,12 @@ registrando la acción `read`. Protocolo JSON con `{"action": "read", ...}` /
 `{"action": "respond", ...}`. No tiene ninguna tool que escriba, así que no puede
 mutar la base.
 
-Consume las tools de lectura de `tools/reads/financial.py` (primer uso del patrón
-de tools reutilizables — ver sección Tools):
+No conoce ninguna implementación concreta: recibe una `list[Tool]` armada en
+`main.py` con los catálogos de `tools/reads/financial.py` y `reports/financial.py`
+(ver sección Tools). Todas sus dependencias son contratos —`Agent`, `AgentLoop`,
+`LLMProvider`, `Tool`—: no importa ni `FinancialReadTools` ni `FinancialReports`.
+
+Las tools que hoy tiene registradas:
 
 | Tool | Qué lee |
 |---|---|
@@ -348,6 +352,31 @@ Organización **por acceso**: `tools/reads/` contiene únicamente tools de lectu
 que un agente de solo lectura no pueda mutar la base, por construcción. Cuando haga
 falta, se sumará `tools/writes/` para las de escritura.
 
+### El contrato (`core/tools/base.py`) → `Tool`
+
+Una tool es un objeto con cuatro campos: `nombre` (lo que el LLM escribe en
+`{"tool": ...}`), `argumentos` (la firma en texto, ej `mes?`), `descripcion` (qué hace
+y qué significa cada argumento) y `ejecutar` (el método, ya atado a su instancia). Es
+un dataclass congelado: una tool no cambia después de armada.
+
+El contrato es **genérico** —no menciona finanzas, igual que `Agent` o `LLMProvider`—
+así que cualquier sub-agente futuro lo usa sin copiar nada.
+
+Cada clase de tools **se describe a sí misma** con un método `catalogo() -> list[Tool]`.
+La descripción vive al lado del método que describe y no en el composition root: si el
+texto queda lejos del código se desincroniza sin que nada falle (ya pasó con
+`buscar_cuentas` — ver Pendientes).
+
+`main.py` concatena los catálogos y se los pasa al agente:
+
+```python
+tools=_lecturas.catalogo() + _reportes.catalogo()
+```
+
+El agente arma su lista blanca con `{tool.nombre: tool}` y no conoce ninguna
+implementación concreta (principio D de SOLID). Qué puede tocar cada agente queda
+visible en el composition root, que es donde viven las decisiones de política.
+
 Implementado: `tools/reads/financial.py` → `FinancialReadTools`
 (`buscar_cuentas`, `listar_ingresos_previstos`, `listar_egresos_previstos`,
 `listar_ingresos_efectuados`, `listar_egresos_efectuados`).
@@ -366,6 +395,11 @@ pedir; los números los pone el código.
 Los reportes dependen de la abstracción `DatabaseClient` y se inyectan por
 constructor desde `main.py`, igual que las tools. No consumen las tools: son sus
 pares, no sus clientes.
+
+Y se describen igual: `FinancialReports.catalogo()` devuelve sus `Tool`, que se
+concatenan con las de lectura antes de llegar al agente. Para el agente los dos son lo
+mismo; la diferencia entre datos crudos y números calculados importa del lado de quien
+los produce.
 
 Implementado: `reports/financial.py` → `FinancialReports`
 
@@ -801,6 +835,10 @@ Detectados durante la construcción; ninguno es bloqueante hoy:
   consultar al modelo. Preguntarle al LLM "¿esta respuesta está bien?" cambiaría un
   ahorro chico por un riesgo de calidad. Contra: se pierden los casos donde el
   orquestador querría agregar contexto — hoy no aplica porque hay un solo agente.
+- **La descripción de cada tool está escrita dos veces**: en el `catalogo()` de la
+  tool y a mano en `agents/financial/prompt.py`. Es temporal y a propósito: el contrato
+  `Tool` ya lleva la descripción justamente para que el prompt la genere solo, pero ese
+  cambio es un ticket aparte. Hasta entonces, tocar una obliga a tocar la otra.
 - **Las garantías del prompt son probabilísticas**: las reglas que evitan que el
   agente afirme filtros que no aplicó viven en su prompt, no en el código. Funcionan
   casi siempre, no siempre. Los montos sí están blindados (los calcula el código);

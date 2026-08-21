@@ -6,8 +6,7 @@ from core.agents.loop import AgentLoop, LoopMessages
 from core.intents import Intent
 from core.llm.base import LLMProvider
 from core.messaging.base import IncomingMessage
-from tools.reads.financial import FinancialReadTools
-from reports.financial import FinancialReports
+from core.tools.base import Tool
 from agents.financial.prompt import SYSTEM_PROMPT
 
 # Los textos del loop de ESTE agente. Los dos primeros son los mismos de siempre;
@@ -41,28 +40,19 @@ class FinancialAgent(Agent):
     def __init__(
         self,
         llm: LLMProvider,
-        tools: FinancialReadTools,
-        reports: FinancialReports,
+        tools: list[Tool],
         max_iterations: int = 5,
     ):
         self._llm = llm
         self._max_iterations = max_iterations
-        self._reports = reports
-        # Lista blanca: el LLM solo puede invocar lo que está registrado acá.
-        # Todas son de lectura — por diseño, este agente no tiene ninguna
-        # herramienta que escriba.
-        self._tools = {
-            "buscar_cuentas": tools.buscar_cuentas,
-            "listar_ingresos_previstos": tools.listar_ingresos_previstos,
-            "listar_egresos_previstos": tools.listar_egresos_previstos,
-            "listar_ingresos_efectuados": tools.listar_ingresos_efectuados,
-            "listar_egresos_efectuados": tools.listar_egresos_efectuados,
-            # Un reporte devuelve números ya calculados; una tool devuelve datos
-            # crudos. Conviven en la misma whitelist porque para el LLM son lo
-            # mismo: algo que puede pedir. Y las dos son de solo lectura, así que
-            # el protocolo {"action": "read"} sirve igual para ambas.
-            "resultado_mensual_por_moneda": reports.resultado_mensual_por_moneda,
-        }
+        # Lista blanca: el LLM solo puede invocar lo que está registrado acá. Las
+        # tools llegan armadas desde main.py, así que este agente no conoce ninguna
+        # implementación concreta — solo el contrato Tool (principio D de SOLID).
+        #
+        # Las de lectura y los reportes conviven en la misma lista porque para el
+        # LLM son lo mismo: algo que puede pedir. La diferencia entre datos crudos
+        # y números calculados importa del lado de quien los produce, no de acá.
+        self._tools = {tool.nombre: tool for tool in tools}
 
     async def handle(self, message: IncomingMessage, intent: Intent, instruction: str) -> AgentResult:
         # El loop se arma por llamada, igual que en el orquestador, para que dos
@@ -105,7 +95,7 @@ class FinancialAgent(Agent):
 
         args = decision.get("args") or {}
         try:
-            result = tool(**args)
+            result = tool.ejecutar(**args)
         except TypeError as e:
             # El LLM mandó argumentos que no coinciden con la firma de la tool.
             return f"Error en los argumentos de {tool_name}: {e}"
