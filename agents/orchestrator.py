@@ -4,6 +4,7 @@ from core.llm.base import LLMProvider
 from core.messaging.base import IncomingMessage
 from core.intents import Intent
 from core.agents.base import Agent, AgentResult
+from core.agents.loop import AgentLoop, LoopMessages
 
 
 SYSTEM_PROMPT_TEMPLATE = """Sos el Orquestador de un sistema de gestión financiera para una empresa.
@@ -28,68 +29,83 @@ Reglas:
 - Si el mensaje no requiere ningún agente (ej: un saludo), respondé directo.
 """
 
+# Los textos del loop de ESTE orquestador. Los dos primeros los lee el usuario
+# final, así que son los mismos de siempre. El tercero solo lo ve el LLM cuando
+# eligió una acción que no existe.
+MENSAJES = LoopMessages(
+    parseo_fallido="No pude procesar tu pedido correctamente. ¿Podés reformularlo?",
+    iteraciones_agotadas=(
+        "Tu pedido requirió demasiados pasos y no pude completarlo. ¿Podés dividirlo en partes?"
+    ),
+    formato_invalido=(
+        'Formato inválido. Respondé únicamente {"action": "call_agent", '
+        '"agent": "...", "instruction": "..."} o {"action": "respond", "text": "..."}.'
+    ),
+)
+
 
 class Orchestrator:
     # Recibe el mensaje ya clasificado por el Router y decide cómo resolverlo:
     # a qué sub-agente llamar, con qué instrucción, y si encadenar varios.
     # Depende solo de las abstracciones LLMProvider y Agent — nunca de
     # implementaciones concretas (principio D de SOLID).
+    #
+    # La mecánica de decidir → ejecutar → realimentar vive en AgentLoop. Acá
+    # queda únicamente lo que es propio del orquestador: qué acción entiende
+    # ("call_agent") y qué hace con ella.
 
     def __init__(self, llm: LLMProvider, agents: list[Agent], max_iterations: int = 5):
         self._llm = llm
         # Registro de agentes por nombre. Agregar un agente nuevo es solo
         # sumarlo a la lista en main.py — esta clase no se modifica (principio O).
         self._agents = {agent.name: agent for agent in agents}
-        # Límite de vueltas del loop para que un error de razonamiento
-        # del LLM nunca deje al sistema ciclando (y gastando tokens) infinitamente.
+        # Se le pasa al loop, que es quien corta cuando se agotan las vueltas.
         self._max_iterations = max_iterations
 
     async def run(self, message: IncomingMessage, intent: Intent) -> str:
-        # El historial arranca con el prompt del sistema y el pedido del usuario,
-        # y va acumulando las decisiones del LLM y los resultados de cada agente.
-        # Así el LLM siempre decide con el contexto completo de lo que ya pasó.
+        # El catálogo se arma acá adentro y no en el constructor porque la acción
+        # necesita el mensaje y el intent de ESTA corrida. main.py procesa varios
+        # mensajes en paralelo: guardarlos en self los mezclaría entre sí.
+        async def call_agent(decision: dict) -> str:
+            return await self._call_agent(decision, message, intent)
+
+        loop = AgentLoop(
+            llm=self._llm,
+            nombre="orquestador",
+            acciones={"call_agent": call_agent},
+            mensajes=MENSAJES,
+            max_iterations=self._max_iterations,
+        )
+
+        # El historial arranca con el prompt del sistema y el pedido del usuario;
+        # el loop lo va llenando con las decisiones y los resultados de cada agente.
         history = [
             {"role": "system", "content": self._build_system_prompt()},
             {"role": "user", "content": f"Intent del Router: {intent.value}\nMensaje del usuario: {message.text}"},
         ]
 
-        for _ in range(self._max_iterations):
-            response = await self._llm.chat(history)
-            decision = self._parse_decision(response)
-            print(f"[DEBUG] Decisión del LLM: {decision}")
+        # El orquestador le habla al usuario, así que solo le interesa el texto:
+        # el éxito o fracaso ya viaja adentro del mensaje que se le devuelve.
+        outcome = await loop.run(history)
+        return outcome.text
 
-            # Si el LLM devolvió algo no parseable, se corta acá con un
-            # mensaje honesto en vez de arriesgar un comportamiento indefinido.
-            if decision is None:
-                return "No pude procesar tu pedido correctamente. ¿Podés reformularlo?"
+    async def _call_agent(self, decision: dict, message: IncomingMessage, intent: Intent) -> str:
+        # Ejecuta la acción "call_agent": busca el agente en el registro, lo llama
+        # y devuelve su resultado como texto para el historial del loop.
+        agent_name = decision.get("agent", "")
+        agent = self._agents.get(agent_name)
 
-            if decision.get("action") == "respond":
-                return decision.get("text", "")
+        # El LLM puede alucinar un agente inexistente — se le informa dentro del
+        # loop para que corrija en el próximo turno.
+        if agent is None:
+            return f"Error: el agente '{agent_name}' no existe."
 
-            if decision.get("action") == "call_agent":
-                agent_name = decision.get("agent", "")
-                agent = self._agents.get(agent_name)
-
-                # El LLM puede alucinar un agente inexistente — se le informa
-                # dentro del loop para que corrija en el próximo turno.
-                if agent is None:
-                    result_text = f"Error: el agente '{agent_name}' no existe."
-                else:
-                    result = await agent.handle(
-                        message=message,
-                        intent=intent,
-                        instruction=decision.get("instruction", ""),
-                    )
-                    result_text = self._format_result(agent_name, result)
-                    print(f"[DEBUG] Resultado del agente: {result_text}")
-
-                # La decisión del LLM y el resultado del agente se agregan al
-                # historial para que el próximo turno decida con esa información.
-                history.append({"role": "assistant", "content": response})
-                history.append({"role": "user", "content": result_text})
-
-        # Se agotaron las iteraciones sin un "respond" — mejor avisar que colgarse.
-        return "Tu pedido requirió demasiados pasos y no pude completarlo. ¿Podés dividirlo en partes?"
+        result = await agent.handle(
+            message=message,
+            intent=intent,
+            instruction=decision.get("instruction", ""),
+        )
+        return self._format_result(agent_name, result)
 
     def _build_system_prompt(self) -> str:
         # Arma el catálogo de agentes dinámicamente desde el registro.
@@ -99,23 +115,11 @@ class Orchestrator:
         )
         return SYSTEM_PROMPT_TEMPLATE.format(agents_catalog=catalog)
 
-    def _parse_decision(self, response: str) -> dict | None:
-        # Los LLMs a veces envuelven el JSON en un bloque de código markdown
-        # (```json ... ```) aunque se les pida que no — se limpia antes de parsear.
-        cleaned = response.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.strip("`").removeprefix("json").strip()
-
-        try:
-            return json.loads(cleaned)
-        except json.JSONDecodeError:
-            return None
-
     def _format_result(self, agent_name: str, result: AgentResult) -> str:
         # Convierte el AgentResult en texto plano para el historial del LLM.
         # Incluye data para que el próximo agente pueda usar esos valores.
         status = "OK" if result.success else "FALLÓ"
         text = f"[Resultado de {agent_name}] ({status}): {result.text}"
         if result.data:
-            text += f"\nDatos: {json.dumps(result.data, ensure_ascii=False)}"
+            text += f"\nDatos: {json.dumps(result.data, ensure_ascii=False, default=str)}"
         return text

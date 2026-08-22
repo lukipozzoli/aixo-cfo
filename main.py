@@ -1,5 +1,5 @@
 import asyncio
-import traceback
+import logging
 from core.messaging.base import IncomingMessage
 from core.llm.factory import build_llm_provider
 from core.transcription.factory import build_transcription_provider
@@ -18,8 +18,29 @@ from config.aixo import (
     FINANCIAL_AGENT_PROVIDER, FINANCIAL_AGENT_MODEL,
     TRANSCRIPTION_PROVIDER, TRANSCRIPTION_MODEL,
     VISION_PROVIDER, VISION_MODEL,
+    LOG_LEVEL,
     get_llm_api_key,
 )
+
+# Configuración del logging: se hace UNA sola vez, acá en el composition root.
+# Los módulos solo piden su logger y emiten; a dónde va la salida y con cuánto
+# detalle se decide en un único lugar y se cambia por .env, sin tocar código.
+logging.basicConfig(
+    level=logging.WARNING,
+    format="%(asctime)s %(levelname)s %(name)s | %(message)s",
+    datefmt="%H:%M:%S",
+)
+
+# LOG_LEVEL se aplica SOLO a los módulos del proyecto; todo lo demás queda en
+# WARNING. Es una lista blanca y no una lista negra a propósito: primero
+# intentamos silenciar librería por librería y se escapó hpack, que en DEBUG
+# imprime cada header HTTP/2 — incluida la apikey de Supabase en texto plano.
+# Una lista de librerías a callar nunca está completa; una lista de módulos
+# propios sí, porque son los nuestros.
+for _modulo in ("__main__", "agents", "core", "reports", "tools", "providers", "db", "messaging"):
+    logging.getLogger(_modulo).setLevel(LOG_LEVEL)
+
+logger = logging.getLogger(__name__)
 
 # Inicializa el Preprocessor con los providers configurados en .env.
 _messaging = get_client()
@@ -50,16 +71,20 @@ _router = Router(
 # los dos dependen de la misma abstracción, no hace falta una conexión por cada uno.
 _db = get_db_client()
 
+# Las tools de lectura y los reportes se arman acá y entregan cada uno su catálogo.
+# El agente recibe una sola lista de Tool: qué puede tocar cada agente es una
+# decisión de la aplicación, y por eso se ve en el composition root.
+_lecturas = FinancialReadTools(db=_db)
+_reportes = FinancialReports(db=_db)
+
 # Inicializa el Financial Agent: agente financiero, por ahora de solo lectura.
-# Recibe las tools de lectura y los reportes ya armados (inyección desde acá).
 _financial = FinancialAgent(
     llm=build_llm_provider(
         provider=FINANCIAL_AGENT_PROVIDER,
         model=FINANCIAL_AGENT_MODEL,
         api_key=get_llm_api_key(FINANCIAL_AGENT_PROVIDER),
     ),
-    tools=FinancialReadTools(db=_db),
-    reports=FinancialReports(db=_db),
+    tools=_lecturas.catalogo() + _reportes.catalogo(),
 )
 
 # Inicializa el Orquestador con su LLM y los sub-agentes registrados.
@@ -91,7 +116,7 @@ async def handle(message: IncomingMessage) -> None:
         response = await _orchestrator.run(message, intent)
         await _messaging.send(message.chat_id, response)
     except Exception:
-        traceback.print_exc()
+        logger.exception("Falló el pipeline procesando un mensaje")
         await _messaging.send(
             message.chat_id,
             "Se me complicó procesando eso. Probá de nuevo en un momento.",
@@ -103,7 +128,7 @@ def _reportar_error(tarea: asyncio.Task) -> None:
     # que falle el propio send). Sin esto la excepción queda guardada adentro de la
     # tarea y no se entera nadie.
     if not tarea.cancelled() and tarea.exception() is not None:
-        traceback.print_exception(tarea.exception())
+        logger.error("Error no atrapado en una tarea", exc_info=tarea.exception())
 
 
 async def dispatch(message: IncomingMessage) -> None:
@@ -121,7 +146,7 @@ async def dispatch(message: IncomingMessage) -> None:
     tarea.add_done_callback(_reportar_error)
 
 async def main() -> None:
-    print("Agente CFO iniciado. Escuchando mensajes...")
+    logger.info("Agente CFO iniciado. Escuchando mensajes...")
     await _messaging.listen(dispatch)
 
 

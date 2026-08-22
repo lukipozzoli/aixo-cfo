@@ -51,6 +51,7 @@ Completar las variables:
 | `DATABASE_PROVIDER` | `supabase` |
 | `DATABASE_URL` | URL del proyecto Supabase (Settings → Data API) |
 | `DATABASE_KEY` | **Secret key** del proyecto (Settings → API Keys → Secret keys). Nunca la publishable. |
+| `DATABASE_SCHEMA` | Schema de Postgres donde viven las tablas del agente (`finanzas`). Tiene que coincidir con el nombre que crea la migración — ver abajo. |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | Solo las de los providers que uses |
 | `ROUTER_PROVIDER` / `ROUTER_MODEL` | Clasificador de intents (ej: `openai` / `gpt-4o-mini`) |
 | `ORCHESTRATOR_PROVIDER` / `ORCHESTRATOR_MODEL` | Orquestador (ej: `openai` / `gpt-4o-mini`) |
@@ -63,6 +64,7 @@ Completar las variables:
 | `TELEGRAM_WEBHOOK_PATH` / `TELEGRAM_WEBHOOK_URL` | Solo para modo webhook |
 | `TRANSCRIPTION_PROVIDER` / `TRANSCRIPTION_MODEL` | Transcripción de audios (ej: `whisper` / `whisper-1`) |
 | `VISION_PROVIDER` / `VISION_MODEL` | Lectura de imágenes (ej: `claude` / `claude-haiku-4-5-20251001`) |
+| `LOG_LEVEL` | Detalle de los logs: `DEBUG`, `INFO`, `WARNING`, `ERROR`. Opcional, default `INFO`. **`DEBUG` vuelca montos y respuestas del LLM completas — no usar en producción.** |
 
 ### 3. Crear la base de datos en Supabase
 
@@ -71,6 +73,13 @@ Completar las variables:
 3. Exponer el schema a la API: **Settings → Data API → Exposed schemas** → agregar `finanzas` → Save.
 
 > Los permisos del schema para el rol de backend (`service_role`) están incluidos al final de la migración. Sin ellos la API devuelve `permission denied for schema finanzas`.
+
+> **El nombre del schema lo fija la migración.** `001_finanzas.sql` escribe `finanzas`
+> en el `create schema`, en cada tabla y en los `grant` del final. El código no lo
+> conoce: lo lee de `DATABASE_SCHEMA`. Si querés otro nombre, cambialo en los dos
+> lados — no alcanza con el `.env`. No se parametrizó el SQL porque el flujo de uso
+> es copiar y pegar el archivo en el editor de Supabase, y meterle un paso de
+> plantilla en el medio lo rompería.
 
 ### 4. Crear el bot de Telegram
 
@@ -106,6 +115,19 @@ También acepta **audios** (los transcribe) e **imágenes** (las lee con visión
 
 Los datos que consulta viven en Supabase → Table Editor → schema `finanzas` (verificable también desde el SQL Editor).
 
+## Correr los tests
+
+```bash
+source venv/bin/activate
+python3 -m pytest tests/ -q
+```
+
+El `-m` hace que Python incluya la carpeta actual, para que los tests encuentren
+`agents/`, `core/` y el resto. Sin eso fallan al importar.
+
+La cobertura es mínima a propósito: los tests se van sumando cuando aparece un bug
+que solo un test puede atrapar, no para cubrir porcentaje.
+
 ## Estructura del proyecto
 
 ```
@@ -113,7 +135,9 @@ Los datos que consulta viven en Supabase → Table Editor → schema `finanzas` 
 ├── config/aixo.py        # Configuración de la empresa (lee el .env)
 ├── core/                 # Abstracciones (interfaces): llm, db, messaging,
 │   │                     #   vision, transcription, scheduler, agents
-│   └── agents/base.py    # Contrato Agent + AgentResult que cumple todo sub-agente
+│   ├── agents/base.py    # Contrato Agent + AgentResult que cumple todo sub-agente
+│   ├── agents/loop.py    # AgentLoop: el loop agéntico que comparten orquestador y agentes
+│   └── tools/base.py     # Contrato Tool: nombre, argumentos, descripción y ejecución
 ├── providers/            # Implementaciones concretas (Claude, OpenAI, Gemini,
 │                         #   Supabase, Telegram, Whisper)
 ├── agents/
@@ -122,6 +146,7 @@ Los datos que consulta viven en Supabase → Table Editor → schema `finanzas` 
 │   └── financial/        # Financial Agent (agent.py + prompt.py) — solo lectura
 ├── tools/reads/          # Tools de lectura, reutilizables e inyectadas
 ├── reports/              # Reportes: cálculo determinista sobre los datos
+├── tests/                # Tests automáticos (pytest)
 ├── db/migrations/        # DDL versionado de la base de datos
 └── docs/context.md       # Documentación viva: arquitectura, tablas, decisiones
 ```

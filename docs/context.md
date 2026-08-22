@@ -83,6 +83,29 @@ Factory: `db/client.py` → `get_client()`
 |----------|---------|----------------------|
 | Supabase | `providers/db/supabase.py` | `DATABASE_PROVIDER=supabase` |
 
+El schema de Postgres llega por constructor junto con la URL y la key, desde
+`DATABASE_SCHEMA`. `SupabaseClient` lo ata una sola vez —`create_client(...).schema(x)`
+devuelve un cliente ya apuntado a ese espacio de tablas— y los cuatro métodos no
+vuelven a nombrarlo.
+
+Va en el constructor y no en la interfaz `DatabaseClient` a propósito: "schema" es un
+concepto de Postgres, y si mañana el provider fuera Mongo o SQLite ese parámetro no
+significaría nada. La abstracción queda genérica; el detalle vive en el adaptador que
+sí sabe con qué habla.
+
+Una instancia representa **el acceso a un conjunto de tablas**: quien la recibe pide
+una tabla por nombre y no sabe en qué schema vive. Para hablarle a otro schema se
+construye otro cliente. Hoy `get_client()` devuelve uno solo, así que el sistema usa
+un único schema por corrida; cuando ARCA necesite `facturacion` en paralelo, el
+cambio es que el factory reciba el schema y guarde uno por cada uno — confinado a
+`db/client.py`.
+
+**El nombre lo fija la migración, no el `.env`.** `001_finanzas.sql` escribe `finanzas`
+en el `create schema`, en cada tabla y en los `grant`. `DATABASE_SCHEMA` tiene que
+coincidir; cambiar de nombre es editar los dos lados. No se parametrizó el SQL porque
+el flujo de instalación es pegar el archivo en el editor de Supabase y un paso de
+plantilla lo rompería.
+
 #### Mensajería (`core/messaging/base.py` → `MessagingProvider`)
 Métodos: `send(chat_id, text)`, `listen(handler)`
 Factory: `messaging/client.py` → `get_client()`
@@ -133,6 +156,42 @@ escribir una línea.
 
 ---
 
+## Logging
+
+Nada escribe a `stdout` directamente. Cada módulo pide su logger con
+`logging.getLogger(__name__)` y solo emite; **a dónde va esa salida y con cuánto
+detalle lo decide `main.py`**, una sola vez, con el nivel leído de `LOG_LEVEL`.
+
+Es la misma separación que la concurrencia: el módulo sabe *qué* informar, la
+aplicación decide *qué se hace* con eso. Un agente no tiene por qué saber si su
+diagnóstico va a una terminal, a un archivo o a un agregador de logs.
+
+**Qué va en cada nivel** — esta es la regla que hace que el esquema sirva:
+
+| Nivel | Qué lleva |
+|---|---|
+| `DEBUG` | El detalle completo: decisiones del LLM, filas devueltas por las tools, montos. |
+| `INFO` | Que algo pasó, sin el contenido. Ej: el arranque del bot. |
+| `ERROR` | Fallas, con su traceback (`logger.exception` lo agrega solo). |
+
+**Ningún dato financiero puede aparecer en `INFO` o por encima.** Con
+`LOG_LEVEL=INFO` un deploy no filtra montos ni respuestas del LLM a sus logs; con
+`DEBUG` sale todo, y por eso `DEBUG` es solo para desarrollo local.
+
+Dos detalles de implementación:
+
+- Los mensajes se arman con `logger.debug("... %s", valor)` y no con f-strings. Con
+  f-string el texto se construye siempre, aunque el nivel esté apagado y el mensaje
+  se descarte.
+- **`LOG_LEVEL` se aplica solo a los módulos del proyecto**, con una lista blanca en
+  `main.py`; el resto del mundo queda en `WARNING`. Se hizo así después de fallar
+  con el enfoque inverso: se listaron las librerías ruidosas conocidas (`httpx`,
+  `httpcore`, `asyncio`, los SDK) y se escapó `hpack`, que en `DEBUG` imprime cada
+  header HTTP/2 — **incluida la apikey de Supabase en texto plano**. Una lista de
+  librerías a silenciar nunca está completa; una lista de módulos propios sí.
+
+---
+
 ## Agentes
 
 ### Contrato común (`core/agents/base.py`) — IMPLEMENTADO
@@ -148,6 +207,38 @@ Convención de organización: **agente simple = archivo, agente complejo = carpe
 con `agent.py` (la clase), `prompt.py` (su system prompt) y `operations.py`
 (operaciones validadas). Cada carpeta es autocontenida y extraíble como skill.
 
+### Loop agéntico (`core/agents/loop.py`) — IMPLEMENTADO
+
+El Orquestador y el Financial Agent comparten la misma mecánica: preguntarle al LLM
+qué hacer, ejecutarlo, mostrarle el resultado, y repetir hasta que responda o se
+agoten las vueltas. Esa mecánica vive en `AgentLoop`, una sola vez.
+
+Encapsula: el loop acotado por `max_iterations`, el parseo de la decisión (incluida la
+limpieza del envoltorio markdown que a veces mete el LLM), la alimentación del
+historial, y el corte por iteraciones.
+
+**No conoce agentes ni tools.** Recibe un catálogo `dict[str, Accion]` desde afuera
+(principio D de SOLID). Lo único que sabe del protocolo es que `respond` termina — que
+no es una acción de dominio sino su forma de cortar. La diferencia entre los dos que lo
+usan queda reducida a qué acciones entienden: el orquestador registra `call_agent`, el
+financial registra `read`.
+
+Devuelve un `LoopOutcome` (`text` + `success`) y no un `AgentResult` ni un `str`: el
+loop no sabe quién lo llama, así que entrega lo mínimo y cada uno lo envuelve como le
+corresponde (principio I). Los tres mensajes de salida —parseo fallido, iteraciones
+agotadas, y el aviso de formato inválido que va al LLM— se inyectan con `LoopMessages`,
+porque el orquestador le habla al usuario final y un sub-agente le habla al orquestador.
+
+Se arma **por llamada**, no en el constructor del agente: el catálogo del orquestador
+necesita el mensaje y el intent de esa corrida, y `main.py` procesa mensajes en
+paralelo. Guardarlos en `self` mezclaría dos conversaciones.
+
+Al unificar se arreglaron dos cosas que estaban desparejas entre los dos loops: el
+orquestador no le avisaba al LLM cuando elegía una acción inexistente (le mandaba el
+mismo prompt las 5 vueltas, sin forma de corregirse), y un JSON válido que no fuera un
+objeto —`["read"]`, `42`— pasaba el parseo y reventaba después con `AttributeError`.
+Los dos quedaron cubiertos en `tests/test_agent_loop.py`.
+
 ### Router (`agents/router.py`) — IMPLEMENTADO
 Clasifica cada mensaje en un intent (enum `core/intents.py`) usando un LLM.
 Valida la respuesta contra el enum; si no matchea, cae en `desconocido`.
@@ -158,11 +249,13 @@ El "agente principal". Recibe el mensaje ya clasificado y decide cómo resolverl
 a qué sub-agente llamar, con qué instrucción, y si encadenar varios. Reemplazó al
 `match intent:` provisorio de `main.py`.
 
-Funcionamiento: loop agéntico con historial. En cada vuelta su LLM responde JSON:
+Funcionamiento: usa el `AgentLoop` de `core/agents/loop.py` (ver arriba), registrando
+una sola acción: `call_agent`. Su LLM responde JSON:
 `{"action": "call_agent", "agent": ..., "instruction": ...}` o
-`{"action": "respond", "text": ...}`. Defensas: JSON validado (formato inválido
-corta con mensaje honesto), agente inexistente informado al LLM para que corrija,
-y límite de iteraciones (default 5) contra loops infinitos.
+`{"action": "respond", "text": ...}`. Las defensas —JSON validado, límite de
+iteraciones (default 5) contra loops infinitos, y el aviso al LLM cuando el formato es
+inválido— viven en el loop. Lo propio del orquestador es informarle al LLM cuando el
+agente que pidió no existe.
 
 Recibe los sub-agentes inyectados por constructor (lista en `main.py`). Agregar
 un agente nuevo no requiere tocar el orquestador (principio O de SOLID).
@@ -171,12 +264,25 @@ un agente nuevo no requiere tocar el orquestador (principio O de SOLID).
 Sub-agente financiero, por ahora de **solo lectura**. Cumple el contrato `Agent`,
 así que el orquestador lo llama igual que a cualquier otro sub-agente. Su LLM elige
 una tool de una **lista blanca**, el código la ejecuta (solo `db.select`) y el LLM
-narra el resultado. Protocolo JSON con `{"action": "read", ...}` /
+narra el resultado. Usa el mismo `AgentLoop` que el orquestador (ver arriba),
+registrando la acción `read`. Protocolo JSON con `{"action": "read", ...}` /
 `{"action": "respond", ...}`. No tiene ninguna tool que escriba, así que no puede
 mutar la base.
 
-Consume las tools de lectura de `tools/reads/financial.py` (primer uso del patrón
-de tools reutilizables — ver sección Tools):
+**Su prompt se arma solo.** `_build_system_prompt()` recorre las tools registradas y
+genera la sección "Tools disponibles" con el nombre, la firma y la descripción de cada
+una — el mismo patrón que usa el orquestador para armar su catálogo de agentes. Sumar
+una tool no requiere editar `agents/financial/prompt.py`, que quedó como template con
+un `{tools_catalog}` y **solo las reglas de criterio**: no inventar datos, no afirmar
+filtros que no se aplicaron, preferir el reporte antes que combinar tools. Eso es
+criterio, no catálogo, y no se autogenera.
+
+No conoce ninguna implementación concreta: recibe una `list[Tool]` armada en
+`main.py` con los catálogos de `tools/reads/financial.py` y `reports/financial.py`
+(ver sección Tools). Todas sus dependencias son contratos —`Agent`, `AgentLoop`,
+`LLMProvider`, `Tool`—: no importa ni `FinancialReadTools` ni `FinancialReports`.
+
+Las tools que hoy tiene registradas:
 
 | Tool | Qué lee |
 |---|---|
@@ -254,6 +360,33 @@ Organización **por acceso**: `tools/reads/` contiene únicamente tools de lectu
 que un agente de solo lectura no pueda mutar la base, por construcción. Cuando haga
 falta, se sumará `tools/writes/` para las de escritura.
 
+### El contrato (`core/tools/base.py`) → `Tool`
+
+Una tool es un objeto con cuatro campos: `nombre` (lo que el LLM escribe en
+`{"tool": ...}`), `argumentos` (la firma en texto, ej `mes?`), `descripcion` (qué hace
+y qué significa cada argumento) y `ejecutar` (el método, ya atado a su instancia). Es
+un dataclass congelado: una tool no cambia después de armada.
+
+El contrato es **genérico** —no menciona finanzas, igual que `Agent` o `LLMProvider`—
+así que cualquier sub-agente futuro lo usa sin copiar nada.
+
+Cada clase de tools **se describe a sí misma** con un método `catalogo() -> list[Tool]`.
+La descripción vive al lado del método que describe y no en el composition root: si el
+texto queda lejos del código se desincroniza sin que nada falle (ya pasó con
+`buscar_cuentas` — ver Pendientes).
+
+`main.py` concatena los catálogos y se los pasa al agente:
+
+```python
+tools=_lecturas.catalogo() + _reportes.catalogo()
+```
+
+El agente arma su lista blanca con `{tool.nombre: tool}` y no conoce ninguna
+implementación concreta (principio D de SOLID). Y con esas mismas `Tool` genera la
+sección de tools de su prompt: `nombre`, `argumentos` y `descripcion` existen para eso.
+Una tool declarada es una tool ejecutable y descrita, en un solo lugar. Qué puede tocar cada agente queda
+visible en el composition root, que es donde viven las decisiones de política.
+
 Implementado: `tools/reads/financial.py` → `FinancialReadTools`
 (`buscar_cuentas`, `listar_ingresos_previstos`, `listar_egresos_previstos`,
 `listar_ingresos_efectuados`, `listar_egresos_efectuados`).
@@ -272,6 +405,11 @@ pedir; los números los pone el código.
 Los reportes dependen de la abstracción `DatabaseClient` y se inyectan por
 constructor desde `main.py`, igual que las tools. No consumen las tools: son sus
 pares, no sus clientes.
+
+Y se describen igual: `FinancialReports.catalogo()` devuelve sus `Tool`, que se
+concatenan con las de lectura antes de llegar al agente. Para el agente los dos son lo
+mismo; la diferencia entre datos crudos y números calculados importa del lado de quien
+los produce.
 
 Implementado: `reports/financial.py` → `FinancialReports`
 
@@ -671,12 +809,16 @@ Detectados durante la construcción; ninguno es bloqueante hoy:
   cargado dos veces). ARCA ya lo prevé con `idempotency_key`; para el agente de
   escritura futuro falta detectar duplicados sospechosos y preguntar.
 - **`edited_at` no se actualiza solo**: falta trigger en la base o seteo desde el código.
-- **Provider de Supabase con schema fijo**: `providers/db/supabase.py` tiene
-  `finanzas` hardcodeado; generalizar cuando ARCA necesite el schema `facturacion`.
-- **Feedback de formato en el orquestador**: el loop del financial avisa al LLM
-  cuando responde con formato inválido; el del orquestador todavía no (mismo fix pendiente).
-- **Prints de `[DEBUG]`**: quedan en el orquestador y en el Financial Agent mientras
-  dure el desarrollo activo; sacarlos al pasar a servidor.
+- **Un solo schema por corrida**: el schema ya no está hardcodeado —viaja desde
+  `DATABASE_SCHEMA`— pero `get_client()` cachea un único cliente, así que el sistema
+  habla con un solo schema a la vez. Nada puede leer `public` (los `cliente`,
+  `proyecto` y `usuario` de Luciano) mientras usa `finanzas`. Cuando ARCA necesite
+  `facturacion` en paralelo, hay que hacer que el factory reciba el schema y guarde
+  uno por cada uno. El cambio queda contenido en `db/client.py`.
+- **`LOG_LEVEL` en el servidor**: los `print` de debug ya son `logger.debug`, así que
+  no hay nada que sacar del código — pero el deploy tiene que arrancar con
+  `LOG_LEVEL=INFO`. Con `DEBUG` los montos y las respuestas del LLM van enteros a
+  los logs.
 - **Confirmación previa a escrituras**: evaluar que operaciones que escriben pidan
   confirmación por Telegram antes de ejecutar (requiere memoria conversacional).
 - **El orden de los mensajes ya no está garantizado**: desde que `main.py` despacha
@@ -694,6 +836,15 @@ Detectados durante la construcción; ninguno es bloqueante hoy:
   cliente sync de supabase-py, así que cada `select` bloquea el event loop. Es el
   mismo problema que se arregló en `LLMProvider`, pero mucho menos grave: una query
   tarda decenas de milisegundos contra los segundos de un LLM. Migrar cuando moleste.
+- **El orquestador reescribe respuestas que ya estaban bien**: cuando llama a un
+  solo agente y ese agente contesta correctamente, el orquestador igual gasta una
+  llamada al LLM para redactar de nuevo lo mismo (visto en pruebas: dos segundos y
+  un texto idéntico al del agente). La salida es lo caro y lo lento — el modelo la
+  genera token por token. **Que la decisión la tome el código, no el LLM**: si se
+  llamó a un solo agente y devolvió `success=True`, pasar su texto tal cual sin
+  consultar al modelo. Preguntarle al LLM "¿esta respuesta está bien?" cambiaría un
+  ahorro chico por un riesgo de calidad. Contra: se pierden los casos donde el
+  orquestador querría agregar contexto — hoy no aplica porque hay un solo agente.
 - **Las garantías del prompt son probabilísticas**: las reglas que evitan que el
   agente afirme filtros que no aplicó viven en su prompt, no en el código. Funcionan
   casi siempre, no siempre. Los montos sí están blindados (los calcula el código);

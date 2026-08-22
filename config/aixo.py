@@ -10,6 +10,10 @@ load_dotenv()
 DATABASE_PROVIDER: str = os.environ["DATABASE_PROVIDER"]
 DATABASE_URL: str = os.environ["DATABASE_URL"]
 DATABASE_KEY: str = os.environ["DATABASE_KEY"]
+# Schema de Postgres donde viven las tablas del agente. Es obligatorio: sin él el
+# cliente no sabe dónde buscar, y ponerle un default sería volver a hardcodearlo
+# —solo que en otro archivo.
+DATABASE_SCHEMA: str = os.environ["DATABASE_SCHEMA"]
 
 # API keys de LLM — solo se requiere la del provider que use cada agente.
 ANTHROPIC_API_KEY: str | None = os.getenv("ANTHROPIC_API_KEY")
@@ -47,6 +51,13 @@ TELEGRAM_WEBHOOK_PATH: str = os.environ["TELEGRAM_WEBHOOK_PATH"]
 # Transcripción de audio
 TRANSCRIPTION_PROVIDER: str = os.environ["TRANSCRIPTION_PROVIDER"]
 TRANSCRIPTION_MODEL: str = os.environ["TRANSCRIPTION_MODEL"]
+
+# Nivel de detalle del logging: DEBUG, INFO, WARNING, ERROR.
+# Va con default y no con os.environ[...] a diferencia del resto: si falta, el
+# sistema arranca igual, solo con menos detalle. No es una credencial sin la cual
+# nada funciona. En producción conviene INFO — DEBUG vuelca montos y respuestas
+# del LLM completas.
+LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 
 # Visión — análisis de imágenes y documentos visuales
 VISION_PROVIDER: str = os.environ["VISION_PROVIDER"]
