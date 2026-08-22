@@ -1,4 +1,5 @@
 import json
+import textwrap
 from datetime import date
 
 from core.agents.base import Agent, AgentResult
@@ -7,9 +8,14 @@ from core.intents import Intent
 from core.llm.base import LLMProvider
 from core.messaging.base import IncomingMessage
 from core.tools.base import Tool
-from agents.financial.prompt import SYSTEM_PROMPT
+from agents.financial.prompt import SYSTEM_PROMPT_TEMPLATE
 
 # Los textos del loop de ESTE agente. Los dos primeros son los mismos de siempre;
+# Ancho del catálogo generado. Acompaña al del texto escrito a mano del prompt, para
+# que el bloque completo se lea parejo cuando alguien lo mira en los logs. Es
+# presentación: al LLM le da igual dónde corte la línea.
+ANCHO_CATALOGO = 86
+
 # el tercero es el aviso de formato que ya tenía, movido acá sin cambiarle una coma.
 MENSAJES = LoopMessages(
     parseo_fallido="No pude interpretar la instrucción recibida.",
@@ -66,7 +72,7 @@ class FinancialAgent(Agent):
         )
 
         history = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "system", "content": self._build_system_prompt()},
             {"role": "user", "content": (
                 # La fecha va explícita porque el LLM no tiene forma de saberla. Sin
                 # esto, ante un "este mes" adivinaría el período — y un mes adivinado
@@ -81,6 +87,23 @@ class FinancialAgent(Agent):
         # por eso acá el success del loop se conserva en el AgentResult.
         outcome = await loop.run(history)
         return AgentResult(text=outcome.text, success=outcome.success)
+
+    def _build_system_prompt(self) -> str:
+        # Arma el catálogo de tools desde el registro, igual que hace el orquestador
+        # con los agentes. El prompt siempre refleja las tools realmente disponibles:
+        # sumar una es sumarla a la lista de main.py, y este texto se acomoda solo.
+        #
+        # Las reglas de criterio del prompt siguen escritas a mano: eso no se puede
+        # derivar de ninguna tool.
+        catalogo = "\n\n".join(
+            f"- {tool.nombre}({tool.argumentos})\n"
+            # El ancho es presentación, no contenido: la Tool guarda la descripción
+            # como texto corrido y el corte de línea lo decide quien la muestra.
+            + textwrap.fill(tool.descripcion, width=ANCHO_CATALOGO,
+                            initial_indent="  ", subsequent_indent="  ")
+            for tool in self._tools.values()
+        )
+        return SYSTEM_PROMPT_TEMPLATE.format(tools_catalog=f"Tools disponibles:\n\n{catalogo}")
 
     async def _read(self, decision: dict) -> str:
         # Ejecuta la tool de lectura elegida por el LLM, conteniendo errores:
